@@ -1,0 +1,31 @@
+# Copy to tunnel.conf and fill in. tunnel.conf is gitignored — never commit it.
+# Every value can also be set as an environment variable (env wins over the file).
+# This file holds NO secrets: authentication is by SSH key, referenced by path.
+
+# --- bastion / jump host (required) ---
+BASTION_HOST=bastion.example.com
+BASTION_USER=youruser
+BASTION_PORT=22
+
+# path to your private key (never paste the key itself here)
+SSH_KEY=$HOME/.ssh/id_ed25519
+
+# host-key checking: "accept-new" trusts a new host once then pins it;
+# "yes" requires the key to already be in known_hosts (strongest).
+KNOWN_HOSTS=$HOME/.ssh/known_hosts
+STRICT_HOST_KEY=accept-new
+
+# --- db mode: local-forward a remote service to your machine ---
+# REMOTE_HOST is resolved/reached FROM the bastion, not from you.
+REMOTE_HOST=db.internal.example.com
+REMOTE_PORT=5432
+LOCAL_PORT=15432
+LOCAL_BIND=127.0.0.1
+
+# --- expose mode: remote-forward a local service up to the bastion ---
+EXPOSE_LOCAL_PORT=8080
+EXPOSE_REMOTE_BIND=127.0.0.1
+EXPOSE_REMOTE_PORT=8080
+
+# --- socks mode: dynamic proxy ---
+SOCKS_PORT=1080
