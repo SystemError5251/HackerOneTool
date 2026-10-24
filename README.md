@@ -127,6 +127,26 @@ program data. Open it in a browser. It is unofficial; the
 
 Regenerate the underlying data with `python3 h1scope.py mercadolibre --policy`.
 
+## Secure SSH tunnel
+
+`ssh-tunnel.sh` sets up a hardened SSH tunnel through a bastion / jump host, for
+**authorized** testing only — reaching hosts you're permitted to access via a
+bastion you control or have been granted. It opens no shell (`-N`), uses
+key-based auth only (`BatchMode`, `IdentitiesOnly`), pins host keys, and hardcodes
+no hosts or secrets. Configure it with a gitignored `tunnel.conf` (copy
+`tunnel.conf.example`) or environment variables.
+
+```bash
+cp tunnel.conf.example tunnel.conf   # fill in your bastion + key path
+./ssh-tunnel.sh check                # validate config + auth, then exit
+./ssh-tunnel.sh db                   # local-forward a remote DB port to localhost
+./ssh-tunnel.sh expose               # remote-forward a local service to the bastion
+./ssh-tunnel.sh socks                # dynamic SOCKS5 proxy via the bastion
+```
+
+Authentication is by SSH key referenced by path — the config never contains the
+key or any password. Only tunnel hosts/services you're authorized to access.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
