@@ -23,6 +23,22 @@ python3 h1scope.py mercadolibre --json     # raw JSON for scripting
 
 No dependencies beyond the Python 3 standard library.
 
+## `h1reports.py`
+
+Pairs with `h1scope.py`: before testing an asset, see what's already been
+found and fixed so you don't re-report a known issue and can read the bug
+classes that land on the program. Lists the program's publicly disclosed
+reports (HackerOne's Hacktivity data) with severity, award, date, and link.
+
+```bash
+python3 h1reports.py mercadolibre
+python3 h1reports.py mercadolibre --limit 50
+python3 h1reports.py mercadolibre --grep "2fa|account takeover|ato"
+python3 h1reports.py mercadolibre --json
+```
+
+Also stdlib-only and read-only against HackerOne's public API.
+
 ## Testing methodology
 
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the ATO / 2FA-bypass and Tier 3
