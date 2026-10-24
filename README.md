@@ -97,7 +97,43 @@ The repo is set up for the [OpenCode](https://opencode.ai) CLI agent:
   should respect here.
 - `opencode.json` — loads those instructions and keeps edits/pushes behind a
   confirmation prompt.
-- `analyze.sh` — pipes a helper's output into `opencode run` for analysis:
+- `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
+
+### Terminal integration & installation
+
+Install the [OpenCode](https://opencode.ai) CLI (pick one):
+
+```bash
+npm i -g opencode-ai                      # npm / Node.js
+# or
+curl -fsSL https://opencode.ai/install | bash   # standalone installer
+# or:  brew install sst/tap/opencode  ·  paru -S opencode-bin
+```
+
+Then authenticate once and launch it **from the repo root** so it picks up this
+project's `AGENTS.md`, `opencode.json`, and `.opencode/command/` automatically:
+
+```bash
+cd HackerOneTool
+opencode auth login        # one-time: choose a model provider
+opencode                   # start the interactive TUI in this repo
+```
+
+Inside the TUI you can chat, or run the project slash commands directly
+(`/analyze-program`, `/analyze-report`, `/scope` — see below). For
+non-interactive / scripted use, drive it from the terminal with `opencode run`:
+
+```bash
+opencode run "list the in-scope assets for mercadolibre"   # one-shot prompt
+opencode run --model mock/mock-1 "hello"                   # offline, see below
+```
+
+No provider yet? Use the offline mock model (next section) to exercise the whole
+terminal flow with no API key. Upgrade the CLI any time with `opencode upgrade`.
+
+### Analyze from the terminal
+
+`analyze.sh` wraps `opencode run`, feeding a helper's output straight into a prompt:
 
 ```bash
 opencode auth login                        # one-time: pick a provider
