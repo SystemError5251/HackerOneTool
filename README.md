@@ -68,6 +68,24 @@ opencode auth login                        # one-time: pick a provider
 MODEL=anthropic/claude-sonnet-4-5 ./analyze.sh scope mercadolibre
 ```
 
+### Offline test model (no provider needed)
+
+`mock_model_server.py` is a fake OpenAI-compatible model so you can exercise
+the whole OpenCode pipeline — `analyze.sh`, the slash commands — with no real
+provider, API key, or network. It returns a deterministic reply that echoes
+what it received, proving the plumbing works. The `mock` provider in
+`opencode.json` points OpenCode at it.
+
+```bash
+python3 mock_model_server.py &                 # listen on 127.0.0.1:8787
+opencode run --model mock/mock-1 "hello"       # talks to the mock
+MODEL=mock/mock-1 ./analyze.sh report 2289836  # full pipeline, offline
+kill %1                                         # stop the server
+```
+
+Swap `mock/mock-1` for a real `provider/model` (after `opencode auth login`)
+for actual analysis.
+
 ### Custom commands (OpenCode TUI)
 
 `.opencode/command/` adds slash commands you can run inside the OpenCode TUI.

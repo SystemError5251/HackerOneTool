@@ -1,6 +1,19 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["AGENTS.md", "METHODOLOGY.md"],
+  "provider": {
+    "mock": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Mock (offline test)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8787/v1",
+        "apiKey": "mock"
+      },
+      "models": {
+        "mock-1": { "name": "Mock 1 (deterministic)" }
+      }
+    }
+  },
   "permission": {
     "edit": "ask",
     "bash": {

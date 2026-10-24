@@ -18,6 +18,9 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
   timeline. `--comments`, `--json`.
 - `METHODOLOGY.md` — ATO/2FA-bypass and Tier 3 leak workflow.
 - `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
+- `mock_model_server.py` — fake OpenAI-compatible model for offline pipeline
+  testing (the `mock` provider in `opencode.json`). No real LLM, no network.
+- `.opencode/command/` — `/analyze-program`, `/analyze-report`, `/scope`.
 
 ## Guardrails (do not weaken these)
 
