@@ -68,6 +68,23 @@ opencode auth login                        # one-time: pick a provider
 MODEL=anthropic/claude-sonnet-4-5 ./analyze.sh scope mercadolibre
 ```
 
+### Custom commands (OpenCode TUI)
+
+`.opencode/command/` adds slash commands you can run inside the OpenCode TUI.
+Each injects the relevant helper's output and asks for a summary:
+
+| Command | Does |
+|---|---|
+| `/analyze-program <handle>` | scope + policy + disclosed reports, summarized |
+| `/analyze-report <id\|url>` | one disclosed report, summarized |
+| `/scope <handle>` | scope grouped by tier, with out-of-scope called out |
+
+```
+opencode
+> /analyze-program mercadolibre
+> /analyze-report 2289836
+```
+
 ## Testing methodology
 
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the ATO / 2FA-bypass and Tier 3
