@@ -86,6 +86,14 @@ kill %1                                         # stop the server
 Swap `mock/mock-1` for a real `provider/model` (after `opencode auth login`)
 for actual analysis.
 
+`test-pipeline.sh` is a one-shot smoke test (for CI): it boots the mock, runs
+`analyze.sh` against it through OpenCode, asserts the mock replied, and tears
+the server down. Exit 0 means the pipeline works.
+
+```bash
+./test-pipeline.sh
+```
+
 ### Custom commands (OpenCode TUI)
 
 `.opencode/command/` adds slash commands you can run inside the OpenCode TUI.
