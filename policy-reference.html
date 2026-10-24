@@ -1,0 +1,346 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Mercado Libre Program Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;650&family=Newsreader:opsz,wght@6..72,500;6..72,560&display=swap">
+<style>
+  /* Layout: single reading column; sticky header; data tables in cards. Palette: cool slate paper + one teal accent, semantic chips kept separate. */
+  :root {
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --fg: #1a2230;
+    --muted: #5a6473;
+    --line: #dde3ea;
+    --accent: #0f766e;
+    --accent-soft: #d5ece8;
+    --crit: #b4232a;
+    --high: #c15410;
+    --med: #9a7d0a;
+    --low: #4b5563;
+    --ok: #15803d;
+    --no: #9aa3af;
+    --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151c;
+      --surface: #171e27;
+      --surface-2: #1f2832;
+      --fg: #e6ebf1;
+      --muted: #9aa6b4;
+      --line: #2a3542;
+      --accent: #5ed3c6;
+      --accent-soft: #123b38;
+      --crit: #f0787e;
+      --high: #f0a35e;
+      --med: #d9c15a;
+      --low: #aab3c0;
+      --ok: #6cc98a;
+      --no: #6b7684;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151c;
+    --surface: #171e27;
+    --surface-2: #1f2832;
+    --fg: #e6ebf1;
+    --muted: #9aa6b4;
+    --line: #2a3542;
+    --accent: #5ed3c6;
+    --accent-soft: #123b38;
+    --crit: #f0787e;
+    --high: #f0a35e;
+    --med: #d9c15a;
+    --low: #aab3c0;
+    --ok: #6cc98a;
+    --no: #6b7684;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 72px;
+  }
+
+  header.top {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px);
+    z-index: 10;
+    background: var(--bg);
+  }
+  .top .wrap { padding-block: 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .top .mark { font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; color: var(--accent); text-transform: uppercase; }
+  .top a { color: var(--muted); font-size: 13px; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .top a:hover { color: var(--fg); }
+
+  .hero { padding-block: 40px 20px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  h1 { font-family: var(--font-display); font-weight: 560; font-size: clamp(30px, 6vw, 46px); line-height: 1.05; margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { color: var(--muted); max-width: 60ch; margin: 14px 0 0; font-size: 16px; }
+  .snapshot { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 18px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-top: 24px; }
+  .stat { background: var(--surface); padding: 16px 18px; }
+  .stat .n { font-family: var(--font-display); font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  section { margin-top: 44px; }
+  h2 { font-family: var(--font-display); font-weight: 560; font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .tablescroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 460px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+  code, .mono { font-family: var(--font-mono); font-size: 13px; }
+
+  .chip { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .c-crit { color: var(--crit); }
+  .c-high { color: var(--high); }
+  .c-med { color: var(--med); }
+  .c-low { color: var(--low); }
+  .c-ok { color: var(--ok); }
+  .c-no { color: var(--no); }
+  .tier { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+
+  .assetgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+  .asset { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; min-width: 0; }
+  .asset .id { font-family: var(--font-mono); font-size: 12.5px; word-break: break-all; }
+  .asset .meta { font-size: 11px; color: var(--muted); margin-top: 3px; display: flex; gap: 8px; align-items: center; }
+
+  .group-title { display: flex; align-items: center; gap: 10px; margin: 22px 0 10px; }
+  .group-title h3 { font-size: 15px; margin: 0; font-weight: 650; }
+  .group-title .count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+  ul.rules { list-style: none; padding: 0; margin: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  ul.rules li { background: var(--surface); padding: 12px 16px; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+  ul.rules .tag { font-family: var(--font-mono); font-size: 11px; color: var(--accent); white-space: nowrap; padding-top: 2px; }
+  ul.rules .txt { color: var(--fg); font-size: 14px; }
+  ul.rules .txt b { font-weight: 650; }
+
+  .formula { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-family: var(--font-mono); font-size: 13.5px; overflow-x: auto; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 620px) { .twocol { grid-template-columns: 1fr; } }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  a.inline { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <span class="mark">HackerOneTool · Program Reference</span>
+    <a href="https://hackerone.com/mercadolibre" target="_blank" rel="noopener">hackerone.com/mercadolibre ↗</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero">
+    <p class="eyebrow">Bug bounty program · public</p>
+    <h1>Mercado Libre security program</h1>
+    <p class="lede">A researcher's reference to the scope, tiers, payouts, and rules of Mercado Libre's HackerOne program — built from the program's public data. Test only in-scope, submittable assets, on accounts you own or provisioned test users, and follow the policy.</p>
+    <p class="snapshot">Snapshot taken 2026-10-24 · 88 scope entries · the live program is authoritative</p>
+
+    <div class="stats">
+      <div class="stat"><div class="n">1,910</div><div class="k">Reports resolved</div></div>
+      <div class="stat"><div class="n">95%</div><div class="k">Response efficiency</div></div>
+      <div class="stat"><div class="n">$200–300</div><div class="k">Average bounty</div></div>
+      <div class="stat"><div class="n">$3k–22.5k</div><div class="k">Top bounty range</div></div>
+      <div class="stat"><div class="n">2018</div><div class="k">Accepting since</div></div>
+    </div>
+  </div>
+
+  <section id="bounties">
+    <h2>Bounty table</h2>
+    <p class="sub">High and critical payouts follow the tier formula below; the ranges are caps on the base amount. Lows and mids are fixed. All amounts in USD.</p>
+    <div class="card tablescroll">
+      <table>
+        <thead>
+          <tr><th>Category</th><th>Low</th><th>Medium</th><th>High</th><th>Critical</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><b>RCE</b></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">8,000–15,000</td></tr>
+          <tr><td><b>Account takeover</b></td><td class="num">—</td><td class="num">—</td><td class="num">8,000–10,000</td><td class="num">10,000–15,000</td></tr>
+          <tr><td><span class="tier">Tier 1</span></td><td class="num">200</td><td class="num">500</td><td class="num">7,000–8,900</td><td class="num">9,000–10,000</td></tr>
+          <tr><td><span class="tier">Tier 2</span></td><td class="num">100</td><td class="num">350</td><td class="num">3,500–4,450</td><td class="num">4,500–5,000</td></tr>
+          <tr><td><span class="tier">Tier 3</span></td><td class="num">75</td><td class="num">200</td><td class="num">750</td><td class="num">1,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="twocol" style="margin-top:16px;">
+      <div>
+        <p class="sub" style="margin-bottom:8px;">Formula (High / Critical, CVSS 3.1)</p>
+        <div class="formula">((CVSS × Tier) × 10) + bonus<br><span style="color:var(--muted)">Tier 1 = 100 · Tier 2 = 50</span></div>
+        <p class="note">Example: CVSS 8.6, Tier 1 → (8.6 × 100) × 10 = <b>$8,600</b> base, before bonuses.</p>
+      </div>
+      <div>
+        <p class="sub" style="margin-bottom:8px;">Bonuses</p>
+        <ul class="rules">
+          <li><span class="tag">Newbie</span><span class="txt">+25% on your first valid report of the year. Mutually exclusive with Antique.</span></li>
+          <li><span class="tag">Antique</span><span class="txt">+4–10% for consecutive years reporting (2y→4% … 5y+→10%).</span></li>
+          <li><span class="tag">Fix bypass</span><span class="txt">+10% for bypassing a previously fixed bug. Stacks on top.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="scope">
+    <h2>Scope</h2>
+    <p class="sub">Every asset below is rated up to <span class="chip c-crit">critical</span> unless noted. Test only assets you may submit against.</p>
+
+    <div class="group-title">
+      <h3 style="color:var(--ok)">Eligible for bounty</h3>
+      <span class="count">test + get paid</span>
+    </div>
+
+    <div class="group-title" style="margin-top:6px;"><span class="tier">Tier 1</span></div>
+    <div class="assetgrid">
+      <div class="asset"><div class="id">*.adminml.com</div><div class="meta">wildcard</div></div>
+      <div class="asset"><div class="id">*.mercadolibre.com</div><div class="meta">wildcard</div></div>
+      <div class="asset"><div class="id">*.mercadolibre.{cl, com.ar, com.co, com.mx, com.pe, com.uy}</div><div class="meta">wildcards</div></div>
+      <div class="asset"><div class="id">*.mercadolivre.com.br</div><div class="meta">wildcard</div></div>
+      <div class="asset"><div class="id">*.mercadopago.com</div><div class="meta">wildcard</div></div>
+      <div class="asset"><div class="id">*.mercadopago.{cl, com.ar, com.br, com.co, com.mx, com.pe, com.uy}</div><div class="meta">wildcards</div></div>
+      <div class="asset"><div class="id">api.mercadolibre.com</div><div class="meta">URL · API</div></div>
+      <div class="asset"><div class="id">api.mercadopago.com</div><div class="meta">URL · API</div></div>
+      <div class="asset"><div class="id">com.mercadolibre</div><div class="meta">Android</div></div>
+      <div class="asset"><div class="id">com.mercadopago.wallet</div><div class="meta">Android</div></div>
+      <div class="asset"><div class="id">com.mercadoenvios.driver / .crowdsourcing / .logistics</div><div class="meta">Android · Envíos</div></div>
+      <div class="asset"><div class="id">com.3mosquitos.MercadoLibre</div><div class="meta">iOS</div></div>
+      <div class="asset"><div class="id">com.mercadopago.MercadoPago</div><div class="meta">iOS</div></div>
+      <div class="asset"><div class="id">Point Smart</div><div class="meta">hardware · MLA / MLB</div></div>
+    </div>
+
+    <div class="group-title" style="margin-top:18px;"><span class="tier">Tier 2</span></div>
+    <div class="assetgrid">
+      <div class="asset"><div class="id">*.mlstatic.com</div><div class="meta">wildcard</div></div>
+      <div class="asset"><div class="id">logistica.redelcom.cl</div><div class="meta">URL</div></div>
+      <div class="asset"><div class="id">www.mercadolibre.{co.cr, com.bo, com.do, com.ec, com.gt, com.hn, com.ni, com.pa, com.py, com.sv}</div><div class="meta">10 country sites</div></div>
+      <div class="asset"><div class="id">www.mercadolivre.com · www.mercadopago.com.ec · mercadopago.com.ve</div><div class="meta">URLs</div></div>
+      <div class="asset"><div class="id">biolibre.{ar, cl, co, mx} · biolivre.com.br</div><div class="meta">brand</div></div>
+      <div class="asset"><div class="id">meliplay.{com.ar, com.pe, com.uy}</div><div class="meta">brand</div></div>
+      <div class="asset"><div class="id">mercadoplay.{co, com.pe, com.uy, pe, uy}</div><div class="meta">brand</div></div>
+      <div class="asset"><div class="id">portalinmobiliario.{cl, com} · tucarro.{com, com.co} · tumoto.com</div><div class="meta">verticals</div></div>
+      <div class="asset"><div class="id">furycloud.io · furydocs.io</div><div class="meta">URL · "Exposed in ZT"</div></div>
+      <div class="asset"><div class="id">mpago.li · mpago.la</div><div class="meta">short links</div></div>
+      <div class="asset"><div class="id">mercadobackoffice.com · sustentabilidadmercadolibre.com</div><div class="meta">URLs</div></div>
+      <div class="asset"><div class="id">com.mercadolibre.android.mplay_tv</div><div class="meta">Android TV</div></div>
+    </div>
+
+    <div class="group-title" style="margin-top:18px;"><span class="tier">Other</span></div>
+    <div class="assetgrid">
+      <div class="asset"><div class="id">Crypto</div><div class="meta">www.mercadopago.{com.mx, cl, com.br}/crypto/*</div></div>
+      <div class="asset"><div class="id">Tier 3</div><div class="meta">leaks &amp; misconfigurations</div></div>
+      <div class="asset"><div class="id">Wonder</div><div class="meta">other</div></div>
+      <div class="asset"><div class="id">Leaked Credentials</div><div class="meta"><span class="chip c-high">max high</span></div></div>
+    </div>
+
+    <div class="group-title" style="margin-top:26px;">
+      <h3 style="color:var(--med)">Submit only — no bounty</h3>
+      <span class="count">8 assets</span>
+    </div>
+    <div class="assetgrid">
+      <div class="asset"><div class="id">*.mercadolibre.com.ve · *.tucarro.com.ve</div><div class="meta">wildcards</div></div>
+      <div class="asset"><div class="id">mercadoenvios.com.ve</div><div class="meta">URL · Tier 2</div></div>
+      <div class="asset"><div class="id">mercadolibreexperience.com.* · mercadolivreexperience.mercadolivre.com.br</div><div class="meta">experience</div></div>
+      <div class="asset"><div class="id">*.modoblack.mercadolivre.com.br · fullbarhomologa.modoblackfullbar.com.br</div><div class="meta">modoblack</div></div>
+      <div class="asset"><div class="id">www.ipbooster.com</div><div class="meta">URL</div></div>
+    </div>
+
+    <div class="group-title" style="margin-top:26px;">
+      <h3 style="color:var(--no)">Out of scope — do not test</h3>
+      <span class="count">excluded</span>
+    </div>
+    <div class="assetgrid">
+      <div class="asset"><div class="id">*.kangu.com.br · *.gokangu.{cl, co, mx, uy} · *.kangu.tech</div><div class="meta">Kangu</div></div>
+      <div class="asset"><div class="id">wow-int.mercadolibre.com</div><div class="meta">URL</div></div>
+      <div class="asset"><div class="id">developersforum.*</div><div class="meta">any related asset</div></div>
+      <div class="asset"><div class="id">Redelcom (other than the host above)</div><div class="meta">any related asset</div></div>
+      <div class="asset"><div class="id">*.mercadolibre.cn and any .cn domain</div><div class="meta">explicitly excluded</div></div>
+    </div>
+  </section>
+
+  <section id="tier3">
+    <h2>Tier 3 — leaks &amp; misconfigurations</h2>
+    <p class="sub">Non-applicative findings fixed by a config or access change, not a code patch. Not scored with CVSS — flat bounty by severity, one per source location.</p>
+    <ul class="rules">
+      <li><span class="tag">qualifies</span><span class="txt">Leaked credentials or tokens in public repos, exposed internal docs, misconfigured buckets or dashboards with PII — <b>demonstrably owned by Mercado Libre</b> (corporate email in commits, internal references, in-scope host).</span></li>
+      <li><span class="tag">confirm only</span><span class="txt">Do not access, exfiltrate, or reuse the data. <b>A single non-destructive validation call is the limit</b> — going further voids eligibility.</span></li>
+      <li><span class="tag">report with</span><span class="txt">Source location (URL/path), ownership evidence, and whether the secret was active at discovery.</span></li>
+      <li><span class="tag">excluded</span><span class="txt">Reports from integrator (third-party developer) users are not accepted.</span></li>
+    </ul>
+    <p class="note">Tier 3 pays $1,000 / $750 / $200 / $75 (critical / high / medium / low). The Antique bonus applies; Newbie and Fix Bypass do not.</p>
+  </section>
+
+  <section id="rules">
+    <h2>Key rules</h2>
+    <p class="sub">Prohibited actions can get you banned from the program. Read the full policy before testing.</p>
+    <div class="twocol">
+      <ul class="rules">
+        <li><span class="tag">no scan</span><span class="txt">No massive automated scanning — creative manual testing instead.</span></li>
+        <li><span class="tag">no brute</span><span class="txt">No brute force or rate-limit probing.</span></li>
+        <li><span class="tag">no DoS</span><span class="txt">No denial of service or service degradation.</span></li>
+        <li><span class="tag">no SE</span><span class="txt">No social engineering, phishing, or spam.</span></li>
+        <li><span class="tag">no ATO</span><span class="txt">Never touch another user's account or data.</span></li>
+      </ul>
+      <ul class="rules">
+        <li><span class="tag">test users</span><span class="txt">Use provided or self-created test users; findings are scored <b>Privileges Required: High</b>.</span></li>
+        <li><span class="tag">XSS</span><span class="txt">Without a CSP bypass, rated lower or not at all.</span></li>
+        <li><span class="tag">mobile</span><span class="txt">Cert pinning, obfuscation, root/emulator detection, and in-app-browser deeplinks are out.</span></li>
+        <li><span class="tag">3rd-party</span><span class="txt">Must be exploitable on ML infra; CVEs only 30 days after publication, with a PoC.</span></li>
+        <li><span class="tag">takeover</span><span class="txt">Must insert content; include DNS/provider evidence; no cookie theft or user interaction.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="challenges">
+    <h2>Active challenges &amp; response times</h2>
+    <div class="twocol">
+      <div class="card" style="padding:14px 16px;">
+        <p class="sub" style="margin:0 0 8px;">Current challenges</p>
+        <p style="margin:0;"><span class="chip c-crit">ATO 2FA Bypass</span> &nbsp; <span class="chip c-crit">CSP Bypass</span></p>
+      </div>
+      <ul class="rules">
+        <li><span class="tag">respond</span><span class="txt">First response within <b>2</b> business days.</span></li>
+        <li><span class="tag">triage</span><span class="txt">Triage within <b>5</b> business days.</span></li>
+        <li><span class="tag">bounty</span><span class="txt">Bounty within <b>10</b> business days of triage.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>This is an unofficial researcher reference compiled from the public Mercado Libre program on HackerOne, as of 2026-10-24. It is not affiliated with or endorsed by Mercado Libre or HackerOne. The <a href="https://hackerone.com/mercadolibre" target="_blank" rel="noopener">official program page</a> is always authoritative; scopes and rules change.</p>
+    <p style="margin-top:8px;">Regenerate the underlying data with the repo's helpers: <code>h1scope.py mercadolibre --policy</code>.</p>
+  </footer>
+</div>
