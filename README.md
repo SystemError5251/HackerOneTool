@@ -116,3 +116,17 @@ opencode
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the ATO / 2FA-bypass and Tier 3
 leak workflow, written to stay inside program rules (no mass scanning, no
 brute force, confirm-only on leaks, test on your own accounts).
+
+## Program reference page
+
+[`policy-reference.html`](policy-reference.html) is a self-contained,
+themeable reference page for the Mercado Libre program — scope (by tier),
+bounty table, Tier 3 rules, and key restrictions — compiled from the public
+program data. Open it in a browser. It is unofficial; the
+[official program page](https://hackerone.com/mercadolibre) is authoritative.
+
+Regenerate the underlying data with `python3 h1scope.py mercadolibre --policy`.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
