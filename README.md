@@ -39,6 +39,35 @@ python3 h1reports.py mercadolibre --json
 
 Also stdlib-only and read-only against HackerOne's public API.
 
+## `h1report.py`
+
+Shows one disclosed report's detail — bug class, severity + CVSS, award, and a
+lifecycle timeline — given its id or URL. The full narrative isn't exposed by
+the API, so it links to the report page for the write-up.
+
+```bash
+python3 h1report.py 2289836
+python3 h1report.py https://hackerone.com/reports/2289836 --comments
+python3 h1report.py 2289836 --json
+```
+
+## OpenCode integration
+
+The repo is set up for the [OpenCode](https://opencode.ai) CLI agent:
+
+- `AGENTS.md` — project context and the authorized-testing guardrails OpenCode
+  should respect here.
+- `opencode.json` — loads those instructions and keeps edits/pushes behind a
+  confirmation prompt.
+- `analyze.sh` — pipes a helper's output into `opencode run` for analysis:
+
+```bash
+opencode auth login                        # one-time: pick a provider
+./analyze.sh reports mercadolibre          # summarize disclosed findings
+./analyze.sh report 2289836                # summarize one report
+MODEL=anthropic/claude-sonnet-4-5 ./analyze.sh scope mercadolibre
+```
+
 ## Testing methodology
 
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the ATO / 2FA-bypass and Tier 3
