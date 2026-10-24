@@ -7,6 +7,44 @@ The only rule that matters: test an asset only when the program lists it as
 follow that program's written policy. These tools are read-only recon against
 HackerOne's own public API — they send no traffic to any target's assets.
 
+## Install / Update / Upgrade
+
+All-in-one. Requires `git`, Python 3, and (for the OpenCode pieces) Node.js.
+
+**Install** — clone, make the tools executable, and install the OpenCode CLI:
+
+```bash
+git clone https://github.com/SystemError5251/HackerOneTool.git
+cd HackerOneTool
+chmod +x *.py *.sh
+npm i -g opencode-ai        # optional: only for analyze.sh / slash commands
+opencode auth login         # optional: pick a model provider
+```
+
+One-liner (clone + setup):
+
+```bash
+git clone https://github.com/SystemError5251/HackerOneTool.git && cd HackerOneTool && chmod +x *.py *.sh && npm i -g opencode-ai
+```
+
+**Update** — pull the latest tools and refresh OpenCode:
+
+```bash
+cd HackerOneTool
+git pull --ff-only origin main   # update the helpers
+chmod +x *.py *.sh               # re-arm any new scripts
+opencode upgrade                 # upgrade the OpenCode CLI (optional)
+```
+
+One-liner (update everything):
+
+```bash
+cd HackerOneTool && git pull --ff-only origin main && chmod +x *.py *.sh && opencode upgrade
+```
+
+The helpers need no Python packages — standard library only. Verify a working
+setup any time with `./test-pipeline.sh` (offline, no provider needed).
+
 ## `h1scope.py`
 
 Step 1 of any engagement: know exactly what you are allowed to touch. Given a
