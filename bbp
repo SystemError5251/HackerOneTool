@@ -1,0 +1,603 @@
+#!/usr/bin/env bash
+# bbp — one command for all of HackerOneTool, bilingual (DE/EN).
+#
+# A single, polished entry point that bundles the recon helpers (h1scope,
+# h1reports, h1report) and the OpenCode AI analysis (analyze.sh) behind one
+# coloured terminal UI. You pick the language right when you start it, either
+# interactively or with `bbp --lang de|en`, and it is remembered.
+#
+# Everything bbp does flows through the existing gated helpers, so the Ed25519
+# license gate in h1common still fires exactly as before — bbp never bypasses
+# it. The recon helpers are read-only against HackerOne's public API; bbp adds
+# no new network behaviour of its own.
+#
+# Offline mode runs the AI analysis against a loopback-only model (the bundled
+# mock, or a local llama.cpp instance) and refuses any external provider, so
+# nothing leaves your machine while you are testing in scope.
+#
+# Usage:
+#   bbp                         # interactive menu (asks for a language first)
+#   bbp --lang de               # force German, then the menu
+#   bbp scope    <handle>       # program scope + policy
+#   bbp reports  <handle>       # disclosed reports
+#   bbp report   <id|url>       # one disclosed report
+#   bbp analyze  <scope|reports|report> <arg>   # AI analysis of the above
+#   bbp --offline analyze scope <handle>        # analysis, loopback model only
+#   bbp license                 # license-key status / install
+#   bbp check                   # environment doctor (read-only, no egress)
+#   bbp help | --help           # this help
+#   bbp version | --version     # version
+#
+# Environment:
+#   BBP_LANG=de|en              # default language (overrides the saved config)
+#   BBP_OFFLINE=off|auto|mock|local  # default offline backend for `analyze`
+#   MODEL=provider/model        # model for analysis (as for analyze.sh)
+#   NO_COLOR=1                  # disable colour
+set -euo pipefail
+
+VERSION="1.0.0"
+here="$(cd "$(dirname "$0")" && pwd)"
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/bbp"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+# Offline backends and the loopback endpoints they are pinned to. Changing
+# these is the only place offline routing lives.
+MOCK_PORT="8787"
+MOCK_MODEL="mock/mock-1"
+LOCAL_URL="http://127.0.0.1:8080/v1"   # OPENCODE-LOCAL's llama-server default
+LOCAL_MODEL="llamacpp/local"
+
+# ---------------------------------------------------------------------------
+# Language
+# ---------------------------------------------------------------------------
+BBP_LANG="${BBP_LANG:-}"
+
+load_config() {
+  if [[ -z "$BBP_LANG" && -r "$CONFIG_FILE" ]]; then
+    local v
+    v="$(sed -n 's/^lang=//p' "$CONFIG_FILE" 2>/dev/null | head -1)"
+    [[ "$v" == "de" || "$v" == "en" ]] && BBP_LANG="$v"
+  fi
+}
+
+save_lang() {
+  mkdir -p "$CONFIG_DIR" 2>/dev/null || return 0
+  printf 'lang=%s\n' "$1" >"$CONFIG_FILE" 2>/dev/null || true
+}
+
+# tr2 "<german>" "<english>" — pick the string for the active language.
+tr2() { if [[ "$BBP_LANG" == "de" ]]; then printf '%s' "$1"; else printf '%s' "$2"; fi; }
+
+# t <key> — the message catalogue. German and English sit side by side so a
+# translator can keep them in step.
+t() {
+  case "$1" in
+    tagline)        tr2 "HackerOne Recon & KI-Analyse — autorisiertes Bug-Bounty-Tooling" \
+                        "HackerOne recon & AI analysis — authorized bug-bounty tooling" ;;
+    pick_lang)      tr2 "Sprache wählen" "Choose a language" ;;
+    lang_saved)     tr2 "Sprache gespeichert" "Language saved" ;;
+    menu_title)     tr2 "Hauptmenü" "Main menu" ;;
+    m_scope)        tr2 "Scope eines Programms anzeigen" "Show a program's scope" ;;
+    m_reports)      tr2 "Offengelegte Reports auflisten" "List disclosed reports" ;;
+    m_report)       tr2 "Einen Report im Detail" "One report in detail" ;;
+    m_analyze)      tr2 "KI-Analyse (Scope/Reports/Report)" "AI analysis (scope/reports/report)" ;;
+    m_offline)      tr2 "Offline-Modus umschalten" "Toggle offline mode" ;;
+    m_license)      tr2 "Lizenzschlüssel" "License key" ;;
+    m_lang)         tr2 "Sprache ändern" "Change language" ;;
+    m_check)        tr2 "Umgebung prüfen (Doctor)" "Check environment (doctor)" ;;
+    m_help)         tr2 "Hilfe" "Help" ;;
+    m_quit)         tr2 "Beenden" "Quit" ;;
+    choose)         tr2 "Auswahl" "Choice" ;;
+    prompt_handle)  tr2 "Programm-Handle (z. B. mercadolibre)" "Program handle (e.g. mercadolibre)" ;;
+    prompt_report)  tr2 "Report-ID oder URL" "Report id or URL" ;;
+    prompt_kind)    tr2 "Was analysieren? [1] Scope  [2] Reports  [3] Report" \
+                        "Analyze what? [1] scope  [2] reports  [3] report" ;;
+    empty_input)    tr2 "Keine Eingabe — abgebrochen." "No input — cancelled." ;;
+    press_enter)    tr2 "Enter zum Fortfahren…" "Press Enter to continue…" ;;
+    status_lic)     tr2 "Lizenz" "License" ;;
+    status_mode)    tr2 "Modus" "Mode" ;;
+    lic_ok)         tr2 "gültig" "valid" ;;
+    lic_missing)    tr2 "fehlt" "missing" ;;
+    lic_invalid)    tr2 "ungültig" "invalid" ;;
+    lic_unknown)    tr2 "unbekannt" "unknown" ;;
+    mode_online)    tr2 "online" "online" ;;
+    mode_auto)      tr2 "offline (auto)" "offline (auto)" ;;
+    mode_mock)      tr2 "offline (Mock)" "offline (mock)" ;;
+    mode_local)     tr2 "offline (lokal)" "offline (local)" ;;
+    offline_menu)   tr2 "Offline-Modus wählen" "Choose offline mode" ;;
+    off_online)     tr2 "Online — konfigurierter Provider/MODEL" "Online — configured provider/MODEL" ;;
+    off_auto)       tr2 "Offline Auto — lokal falls aktiv, sonst Mock" \
+                        "Offline auto — local if up, else mock" ;;
+    off_mock)       tr2 "Offline Mock — gebündelter Testserver (127.0.0.1)" \
+                        "Offline mock — bundled test server (127.0.0.1)" ;;
+    off_local)      tr2 "Offline Lokal — llama.cpp auf 127.0.0.1:8080" \
+                        "Offline local — llama.cpp on 127.0.0.1:8080" ;;
+    mode_set)       tr2 "Modus gesetzt" "Mode set" ;;
+    need_opencode)  tr2 "OpenCode ist nicht installiert. Installiere es (npm i -g opencode-ai) und 'opencode auth login'." \
+                        "OpenCode is not installed. Install it (npm i -g opencode-ai) and run 'opencode auth login'." ;;
+    guard_block)    tr2 "Offline-Modus: externer Provider blockiert" \
+                        "Offline mode: external provider blocked" ;;
+    guard_hint)     tr2 "Im Offline-Modus sind nur Loopback-Modelle erlaubt (mock/… oder llamacpp/…)." \
+                        "In offline mode only loopback models are allowed (mock/… or llamacpp/…)." ;;
+    mock_boot)      tr2 "Starte Mock-Modell auf 127.0.0.1" "Starting mock model on 127.0.0.1" ;;
+    mock_dead)      tr2 "Mock-Server ist nicht gestartet." "Mock server failed to start." ;;
+    local_unreach)  tr2 "Lokales Modell auf 127.0.0.1:8080 nicht erreichbar — starte OPENCODE-LOCAL (opencode-local / scripts/start-llama.sh)." \
+                        "Local model on 127.0.0.1:8080 not reachable — start OPENCODE-LOCAL (opencode-local / scripts/start-llama.sh)." ;;
+    analyzing)      tr2 "Analysiere mit Modell" "Analyzing with model" ;;
+    lic_title)      tr2 "Lizenzschlüssel-Status" "License key status" ;;
+    lic_subject)    tr2 "Lizenznehmer" "Licensee" ;;
+    lic_install_q)  tr2 "Schlüssel installieren? Füge ihn ein (leer = überspringen)" \
+                        "Install a key? Paste it (empty = skip)" ;;
+    lic_installed)  tr2 "Schlüssel installiert" "Key installed" ;;
+    lic_badkey)     tr2 "Kein gültiger Schlüssel — nichts installiert." "Not a valid key — nothing installed." ;;
+    check_title)    tr2 "Umgebungs-Check" "Environment check" ;;
+    c_lang)         tr2 "Sprache" "Language" ;;
+    c_mode)         tr2 "Offline-Modus" "Offline mode" ;;
+    c_model)        tr2 "Modell (Analyse)" "Model (analysis)" ;;
+    c_guard)        tr2 "Offline-Schutz" "Offline guard" ;;
+    c_opencode)     tr2 "OpenCode" "OpenCode" ;;
+    c_mock)         tr2 "Mock-Server (127.0.0.1:8787)" "Mock server (127.0.0.1:8787)" ;;
+    c_local)        tr2 "Lokales Modell (127.0.0.1:8080)" "Local model (127.0.0.1:8080)" ;;
+    yes)            tr2 "ja" "yes" ;;
+    no)             tr2 "nein" "no" ;;
+    present)        tr2 "vorhanden" "present" ;;
+    missing)        tr2 "fehlt" "missing" ;;
+    reachable)      tr2 "erreichbar" "reachable" ;;
+    unreachable)    tr2 "nicht erreichbar" "not reachable" ;;
+    guard_ok)       tr2 "ok (Loopback-Modell)" "ok (loopback model)" ;;
+    guard_na)       tr2 "n. z. (online)" "n/a (online)" ;;
+    invalid_choice) tr2 "Ungültige Auswahl." "Invalid choice." ;;
+    bye)            tr2 "Tschüss." "Bye." ;;
+    *)              printf '%s' "$1" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Colour / drawing
+# ---------------------------------------------------------------------------
+setup_colors() {
+  if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    C_RESET=; C_DIM=; C_BOLD=; C_CYAN=; C_GREEN=; C_YELLOW=; C_RED=; C_MAGENTA=; C_BLUE=
+    return
+  fi
+  C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
+  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'; C_MAGENTA=$'\033[35m'; C_BLUE=$'\033[34m'
+}
+
+# A full-width thin rule, used above/below panels.
+BOX_W=62
+hr() { printf '  %s' "$C_DIM"; printf '─%.0s' $(seq 1 "$BOX_W"); printf '%s\n' "$C_RESET"; }
+
+# A content line of the header panel, prefixed with a bold accent bar. Avoids
+# any right-border alignment, which is unreliable with colour and unicode.
+bar() { printf '  %s▌%s %s\n' "$C_MAGENTA" "$C_RESET" "$1"; }
+
+banner() {
+  local lic mode
+  lic="$(license_status_label)"
+  mode="$(mode_label)"
+  printf '\n'
+  bar "$(printf '%s%sbbp%s %s·%s HackerOneTool %sv%s%s' \
+          "$C_BOLD" "$C_MAGENTA" "$C_RESET" "$C_DIM" "$C_RESET" "$C_DIM" "$VERSION" "$C_RESET")"
+  bar "$(printf '%s%s%s' "$C_DIM" "$(t tagline)" "$C_RESET")"
+  bar "$(printf '%s%s:%s %s   %s%s:%s %s' \
+          "$C_DIM" "$(t status_lic)" "$C_RESET" "$lic" \
+          "$C_DIM" "$(t status_mode)" "$C_RESET" "$mode")"
+  hr
+}
+
+info()  { printf '%s»%s %s\n' "$C_CYAN"   "$C_RESET" "$*"; }
+ok()    { printf '%s✓%s %s\n' "$C_GREEN"  "$C_RESET" "$*"; }
+warn()  { printf '%s!%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+err()   { printf '%s✗%s %s\n' "$C_RED"    "$C_RESET" "$*" >&2; }
+
+pause() { printf '\n%s' "$C_DIM"; read -r -p "$(t press_enter)" _ || true; printf '%s' "$C_RESET"; }
+
+# ---------------------------------------------------------------------------
+# License status (read-only, offline — reuses h1common)
+# ---------------------------------------------------------------------------
+# Prints one of: ok<TAB>subject | missing | invalid | unknown
+license_status_raw() {
+  python3 - "$here" <<'PY' 2>/dev/null || printf 'unknown\n'
+import sys
+sys.path.insert(0, sys.argv[1])
+try:
+    import h1common as h
+except Exception:
+    print("unknown"); raise SystemExit(0)
+k = h.load_license_key()
+if k is None:
+    print("missing")
+elif h.license_key_valid(k):
+    print("ok\t" + (h.license_subject(k) or ""))
+else:
+    print("invalid")
+PY
+}
+
+license_status_label() {
+  local raw state
+  raw="$(license_status_raw)"
+  state="${raw%%$'\t'*}"
+  case "$state" in
+    ok)      printf '%s%s%s' "$C_GREEN"  "$(t lic_ok)"      "$C_RESET" ;;
+    missing) printf '%s%s%s' "$C_YELLOW" "$(t lic_missing)" "$C_RESET" ;;
+    invalid) printf '%s%s%s' "$C_RED"    "$(t lic_invalid)" "$C_RESET" ;;
+    *)       printf '%s%s%s' "$C_DIM"    "$(t lic_unknown)" "$C_RESET" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Offline mode
+# ---------------------------------------------------------------------------
+BBP_OFFLINE="${BBP_OFFLINE:-off}"
+
+mode_label() {
+  case "$BBP_OFFLINE" in
+    auto)  printf '%s%s%s' "$C_GREEN"  "$(t mode_auto)"   "$C_RESET" ;;
+    mock)  printf '%s%s%s' "$C_YELLOW" "$(t mode_mock)"   "$C_RESET" ;;
+    local) printf '%s%s%s' "$C_GREEN"  "$(t mode_local)"  "$C_RESET" ;;
+    *)     printf '%s%s%s' "$C_BLUE"   "$(t mode_online)" "$C_RESET" ;;
+  esac
+}
+
+# Collapse "auto" to a concrete backend: local if the llama-server is up on
+# 127.0.0.1:8080, otherwise the bundled mock. off/mock/local pass through.
+effective_offline() {
+  if [[ "$BBP_OFFLINE" == "auto" ]]; then
+    if [[ "$(port_open 8080)" == "open" ]]; then printf 'local'; else printf 'mock'; fi
+  else
+    printf '%s' "$BBP_OFFLINE"
+  fi
+}
+
+# Resolve the model to use for analysis, honouring the offline backend.
+resolve_model() {
+  case "$(effective_offline)" in
+    mock)  printf '%s' "${MODEL:-$MOCK_MODEL}" ;;
+    local) printf '%s' "${MODEL:-$LOCAL_MODEL}" ;;
+    *)     printf '%s' "${MODEL:-}" ;;
+  esac
+}
+
+# In offline mode, only loopback providers are allowed out. Returns 0 if the
+# model is safe for the current mode, 1 otherwise.
+offline_guard_ok() {
+  local model="$1"
+  [[ "$BBP_OFFLINE" == "off" ]] && return 0
+  case "$model" in
+    mock/*|llamacpp/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+run_scope()   { python3 "$here/h1scope.py"   "$@"; }
+run_reports() { python3 "$here/h1reports.py" "$@"; }
+run_report()  { python3 "$here/h1report.py"  "$@"; }
+
+need_opencode() {
+  if ! command -v opencode >/dev/null 2>&1; then
+    err "$(t need_opencode)"
+    return 1
+  fi
+}
+
+# Is something listening on a loopback TCP port? Pure python3, no extra tools.
+port_open() {
+  python3 - "$1" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket()
+s.settimeout(1.0)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1]))); print("open")
+except Exception:
+    pass
+finally:
+    s.close()
+PY
+}
+
+# analyze <scope|reports|report> <arg>
+run_analyze() {
+  local kind="$1" arg="$2" model backend mock_pid=""
+  need_opencode || return 1
+  model="$(resolve_model)"
+  backend="$(effective_offline)"
+
+  if ! offline_guard_ok "$model"; then
+    err "$(t guard_block): ${model:-?}"
+    warn "$(t guard_hint)"
+    return 1
+  fi
+
+  # Bring up the chosen loopback backend.
+  if [[ "$backend" == "mock" ]]; then
+    if [[ "$(port_open "$MOCK_PORT")" != "open" ]]; then
+      info "$(t mock_boot):$MOCK_PORT"
+      python3 "$here/mock_model_server.py" --port "$MOCK_PORT" >/dev/null 2>&1 &
+      mock_pid=$!
+      local i
+      for i in $(seq 1 20); do
+        [[ "$(port_open "$MOCK_PORT")" == "open" ]] && break
+        kill -0 "$mock_pid" 2>/dev/null || { err "$(t mock_dead)"; return 1; }
+        sleep 0.3
+      done
+    fi
+  elif [[ "$backend" == "local" ]]; then
+    if [[ "$(port_open 8080)" != "open" ]]; then
+      err "$(t local_unreach)"
+      return 1
+    fi
+  fi
+
+  info "$(t analyzing): ${model:-default}"
+  local rc=0
+  if [[ -n "$model" ]]; then
+    MODEL="$model" "$here/analyze.sh" "$kind" "$arg" || rc=$?
+  else
+    "$here/analyze.sh" "$kind" "$arg" || rc=$?
+  fi
+
+  if [[ -n "$mock_pid" ]]; then
+    kill "$mock_pid" 2>/dev/null || true
+    wait "$mock_pid" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# Interactive screens
+# ---------------------------------------------------------------------------
+ask_language() {
+  banner_mini() { printf '\n  %s%sbbp%s  %s\n\n' "$C_BOLD" "$C_MAGENTA" "$C_RESET" "$(t tagline 2>/dev/null)"; }
+  printf '\n  %s%sbbp%s · HackerOneTool\n\n' "$C_BOLD" "$C_MAGENTA" "$C_RESET"
+  printf '  %s%s / %s%s\n' "$C_BOLD" "Sprache wählen" "Choose a language" "$C_RESET"
+  printf '    %s1%s) Deutsch\n' "$C_CYAN" "$C_RESET"
+  printf '    %s2%s) English\n\n' "$C_CYAN" "$C_RESET"
+  local c
+  read -r -p "  $(tr2 "Auswahl" "Choice") [1/2]: " c || c=""
+  case "$c" in
+    2) BBP_LANG="en" ;;
+    *) BBP_LANG="de" ;;
+  esac
+  save_lang "$BBP_LANG"
+}
+
+screen_scope() {
+  local h
+  read -r -p "$(t prompt_handle): " h || h=""
+  [[ -z "$h" ]] && { warn "$(t empty_input)"; return; }
+  printf '\n'; run_scope "$h" --policy || true; pause
+}
+
+screen_reports() {
+  local h
+  read -r -p "$(t prompt_handle): " h || h=""
+  [[ -z "$h" ]] && { warn "$(t empty_input)"; return; }
+  printf '\n'; run_reports "$h" --limit 50 || true; pause
+}
+
+screen_report() {
+  local id
+  read -r -p "$(t prompt_report): " id || id=""
+  [[ -z "$id" ]] && { warn "$(t empty_input)"; return; }
+  printf '\n'; run_report "$id" || true; pause
+}
+
+screen_analyze() {
+  local k kind h
+  printf '%s\n' "$(t prompt_kind)"
+  read -r -p "$(t choose) [1/2/3]: " k || k=""
+  case "$k" in
+    1) kind="scope" ;;
+    2) kind="reports" ;;
+    3) kind="report" ;;
+    *) warn "$(t invalid_choice)"; return ;;
+  esac
+  if [[ "$kind" == "report" ]]; then
+    read -r -p "$(t prompt_report): " h || h=""
+  else
+    read -r -p "$(t prompt_handle): " h || h=""
+  fi
+  [[ -z "$h" ]] && { warn "$(t empty_input)"; return; }
+  printf '\n'; run_analyze "$kind" "$h" || true; pause
+}
+
+screen_offline() {
+  printf '\n  %s%s%s\n' "$C_BOLD" "$(t offline_menu)" "$C_RESET"
+  printf '    %s1%s) %s\n' "$C_CYAN" "$C_RESET" "$(t off_online)"
+  printf '    %s2%s) %s\n' "$C_CYAN" "$C_RESET" "$(t off_auto)"
+  printf '    %s3%s) %s\n' "$C_CYAN" "$C_RESET" "$(t off_mock)"
+  printf '    %s4%s) %s\n\n' "$C_CYAN" "$C_RESET" "$(t off_local)"
+  local c
+  read -r -p "  $(t choose) [1/2/3/4]: " c || c=""
+  case "$c" in
+    1) BBP_OFFLINE="off" ;;
+    2) BBP_OFFLINE="auto" ;;
+    3) BBP_OFFLINE="mock" ;;
+    4) BBP_OFFLINE="local" ;;
+    *) warn "$(t invalid_choice)"; return ;;
+  esac
+  ok "$(t mode_set): $(mode_label)"
+}
+
+screen_license() {
+  printf '\n  %s%s%s\n' "$C_BOLD" "$(t lic_title)" "$C_RESET"
+  local raw state subject
+  raw="$(license_status_raw)"; state="${raw%%$'\t'*}"; subject="${raw#*$'\t'}"
+  printf '    %s: %s\n' "$(t status_lic)" "$(license_status_label)"
+  if [[ "$state" == "ok" && -n "$subject" && "$subject" != "$raw" ]]; then
+    printf '    %s: %s\n' "$(t lic_subject)" "$subject"
+  fi
+  printf '\n'
+  local key
+  read -r -p "  $(t lic_install_q): " key || key=""
+  if [[ -n "$key" ]]; then
+    if python3 "$here/h1license.py" install "$key" >/dev/null 2>&1; then
+      ok "$(t lic_installed)"
+    else
+      err "$(t lic_badkey)"
+    fi
+  fi
+  pause
+}
+
+screen_help() { show_help; pause; }
+
+# ---------------------------------------------------------------------------
+# Environment doctor — read-only, only loopback probes, no external egress.
+# ---------------------------------------------------------------------------
+cmd_check() {
+  local model guard oc mock_s local_s
+  model="$(resolve_model)"
+  if offline_guard_ok "$model"; then
+    if [[ "$BBP_OFFLINE" == "off" ]]; then guard="$(t guard_na)"; else guard="$(t guard_ok)"; fi
+  else
+    guard="$(t guard_block)"
+  fi
+  command -v opencode >/dev/null 2>&1 && oc="$(t present)" || oc="$(t missing)"
+  [[ "$(port_open "$MOCK_PORT")" == "open" ]] && mock_s="$(t reachable)" || mock_s="$(t unreachable)"
+  [[ "$(port_open 8080)" == "open" ]] && local_s="$(t reachable)" || local_s="$(t unreachable)"
+
+  printf '\n  %s%s%s\n' "$C_BOLD" "$(t check_title)" "$C_RESET"
+  printf '    %-28s %s\n' "$(t c_lang):"     "$BBP_LANG"
+  printf '    %-28s %s\n' "$(t c_mode):"     "$(mode_label)"
+  printf '    %-28s %s\n' "$(t c_model):"    "${model:-default}"
+  printf '    %-28s %s\n' "$(t c_guard):"    "$guard"
+  printf '    %-28s %s\n' "$(t status_lic):" "$(license_status_label)"
+  printf '    %-28s %s\n' "$(t c_opencode):" "$oc"
+  printf '    %-28s %s\n' "$(t c_mock):"     "$mock_s"
+  printf '    %-28s %s\n' "$(t c_local):"    "$local_s"
+  printf '\n'
+}
+
+# ---------------------------------------------------------------------------
+# Help / version
+# ---------------------------------------------------------------------------
+show_help() {
+  printf '\n%s%sbbp%s — %s\n\n' "$C_BOLD" "$C_MAGENTA" "$C_RESET" "$(t tagline)"
+  printf '%s%s%s\n' "$C_BOLD" "$(tr2 "Aufruf" "Usage")" "$C_RESET"
+  cat <<EOF
+  bbp                         $(tr2 "interaktives Menü (fragt zuerst die Sprache)" "interactive menu (asks for a language first)")
+  bbp --lang de|en            $(tr2 "Sprache erzwingen" "force the language")
+  bbp scope   <handle>        $(tr2 "Scope + Policy eines Programms" "a program's scope + policy")
+  bbp reports <handle>        $(tr2 "offengelegte Reports" "disclosed reports")
+  bbp report  <id|url>        $(tr2 "ein Report im Detail" "one report in detail")
+  bbp analyze <scope|reports|report> <arg>
+                              $(tr2 "KI-Analyse der obigen Daten" "AI analysis of the above")
+  bbp --offline[=auto|mock|local] analyze …
+                              $(tr2 "Analyse nur über Loopback-Modell" "analysis via loopback model only")
+  bbp license                 $(tr2 "Lizenzschlüssel-Status / installieren" "license-key status / install")
+  bbp check                   $(tr2 "Umgebung prüfen (read-only)" "check environment (read-only)")
+  bbp help | version          $(tr2 "Hilfe / Version" "help / version")
+
+$(tr2 "Umgebungsvariablen" "Environment variables"):
+  BBP_LANG=de|en   BBP_OFFLINE=off|auto|mock|local   MODEL=provider/model   NO_COLOR=1
+EOF
+  printf '\n%s%s%s\n' "$C_DIM" \
+    "$(tr2 "Autorisiertes Testing, bleib im Scope. Siehe README & METHODOLOGY.md." \
+           "Authorized testing only, stay in scope. See README & METHODOLOGY.md.")" "$C_RESET"
+  printf '\n'
+}
+
+show_version() { printf 'bbp %s (HackerOneTool)\n' "$VERSION"; }
+
+# ---------------------------------------------------------------------------
+# Interactive menu loop
+# ---------------------------------------------------------------------------
+menu_loop() {
+  while true; do
+    banner
+    printf '\n  %s%s%s\n' "$C_BOLD" "$(t menu_title)" "$C_RESET"
+    printf '    %s1%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_scope)"
+    printf '    %s2%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_reports)"
+    printf '    %s3%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_report)"
+    printf '    %s4%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_analyze)"
+    printf '    %s5%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_offline)"
+    printf '    %s6%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_license)"
+    printf '    %s7%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_lang)"
+    printf '    %s8%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_check)"
+    printf '    %s9%s) %s\n' "$C_CYAN" "$C_RESET" "$(t m_help)"
+    printf '    %s0%s) %s\n\n' "$C_CYAN" "$C_RESET" "$(t m_quit)"
+    local c
+    read -r -p "  $(t choose): " c || { printf '\n'; break; }
+    case "$c" in
+      1) screen_scope ;;
+      2) screen_reports ;;
+      3) screen_report ;;
+      4) screen_analyze ;;
+      5) screen_offline ;;
+      6) screen_license ;;
+      7) ask_language ; ok "$(t lang_saved): $BBP_LANG" ;;
+      8) cmd_check ; pause ;;
+      9) screen_help ;;
+      0|q|Q) ok "$(t bye)"; break ;;
+      *) warn "$(t invalid_choice)" ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+main() {
+  load_config
+  local args=()
+  # First pass: global flags anywhere on the line.
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --lang) BBP_LANG="${2:-}"; shift 2 ;;
+      --lang=*) BBP_LANG="${1#*=}"; shift ;;
+      --offline) BBP_OFFLINE="auto"; shift ;;
+      --offline=*) BBP_OFFLINE="${1#*=}"; shift ;;
+      --online) BBP_OFFLINE="off"; shift ;;
+      --no-color|--no-colour) NO_COLOR=1; shift ;;
+      -h|--help) BBP_LANG="${BBP_LANG:-en}"; setup_colors; show_help; return 0 ;;
+      -V|--version) show_version; return 0 ;;
+      --) shift; while [[ $# -gt 0 ]]; do args+=("$1"); shift; done ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  [[ "$BBP_LANG" != "de" && "$BBP_LANG" != "en" ]] && BBP_LANG=""
+  case "$BBP_OFFLINE" in off|auto|mock|local) : ;; *) BBP_OFFLINE="off" ;; esac
+  setup_colors
+
+  local sub="${args[0]:-}"
+  case "$sub" in
+    help)    BBP_LANG="${BBP_LANG:-en}"; show_help ;;
+    version) show_version ;;
+    check)   BBP_LANG="${BBP_LANG:-en}"; cmd_check ;;
+    scope)   BBP_LANG="${BBP_LANG:-en}"; run_scope   "${args[@]:1}" ;;
+    reports) BBP_LANG="${BBP_LANG:-en}"; run_reports "${args[@]:1}" ;;
+    report)  BBP_LANG="${BBP_LANG:-en}"; run_report  "${args[@]:1}" ;;
+    analyze)
+      BBP_LANG="${BBP_LANG:-en}"
+      local kind="${args[1]:-}" arg="${args[2]:-}"
+      if [[ -z "$kind" || -z "$arg" ]]; then
+        err "$(tr2 "Aufruf: bbp analyze <scope|reports|report> <arg>" \
+                   "Usage: bbp analyze <scope|reports|report> <arg>")"
+        return 1
+      fi
+      run_analyze "$kind" "$arg"
+      ;;
+    license) BBP_LANG="${BBP_LANG:-en}"; screen_license ;;
+    "")
+      # No subcommand: interactive. Ask for a language first if none is set.
+      [[ -z "$BBP_LANG" ]] && { ask_language; setup_colors; }
+      menu_loop
+      ;;
+    *)
+      BBP_LANG="${BBP_LANG:-en}"
+      err "$(tr2 "Unbekannter Befehl" "Unknown command"): $sub"
+      show_help
+      return 1
+      ;;
+  esac
+}
+
+main "$@"

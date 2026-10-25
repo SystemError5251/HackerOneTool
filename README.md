@@ -81,6 +81,66 @@ cd HackerOneTool && git pull --ff-only origin main && chmod +x *.py *.sh && open
 The helpers need no Python packages — standard library only. Verify a working
 setup any time with `./test-pipeline.sh` (offline, no provider needed).
 
+## `bbp` — one command for everything
+
+`bbp` is a single, bilingual entry point that bundles the recon helpers and the
+OpenCode analysis behind one coloured terminal UI. You pick the language right
+when you start it — interactively, or with `bbp --lang de|en` — and it's
+remembered in `~/.config/bbp/config`.
+
+```bash
+./bbp                      # interactive menu (asks for a language first)
+./bbp --lang de            # force German, then the menu
+```
+
+It also works non-interactively, so it's scriptable too — *„command für
+alles"*:
+
+```bash
+./bbp scope   mercadolibre          # program scope + policy   (→ h1scope.py)
+./bbp reports mercadolibre          # disclosed reports        (→ h1reports.py)
+./bbp report  2289836               # one report in detail     (→ h1report.py)
+./bbp analyze reports mercadolibre  # AI analysis of the above (→ analyze.sh)
+./bbp check                         # environment doctor (read-only, no egress)
+./bbp help                          # full help (in the active language)
+```
+
+Everything `bbp` runs flows through the existing gated helpers, so the
+Ed25519 **license gate** (see below) still applies exactly as before — `bbp`
+never bypasses it, and shows the current license status in its header.
+
+### Offline mode — stay in scope
+
+For the AI analysis step, `bbp` can enforce a **loopback-only** model so nothing
+leaves your machine while you test in scope. It refuses any external provider in
+offline mode:
+
+```bash
+./bbp --offline        analyze scope mercadolibre   # auto: local if up, else mock
+./bbp --offline=local  analyze scope mercadolibre   # llama.cpp on 127.0.0.1:8080
+./bbp --offline=mock   analyze report 2289836       # bundled mock (127.0.0.1:8787)
+```
+
+- **auto** — use the local llama.cpp server (`llamacpp/local`,
+  `http://127.0.0.1:8080/v1`) if it's running, otherwise fall back to the
+  bundled offline mock. This is the offline OpenCode integration from
+  [OPENCODE-LOCAL](https://github.com/SystemError5251/OPENCODE-LOCAL); start it
+  with `opencode-local` / `scripts/start-llama.sh`.
+- **mock** — the bundled `mock_model_server.py`, booted automatically for the
+  run. No provider, API key, or real network needed (used by CI).
+- **local** — require the local llama.cpp server; error out if it isn't up.
+
+In any offline mode, a model that isn't a `mock/…` or `llamacpp/…` provider is
+**blocked** before OpenCode is invoked. Online mode (`--online`, the default)
+uses whatever provider/`MODEL` you've configured.
+
+| Environment variable | Meaning |
+|---|---|
+| `BBP_LANG=de\|en` | default language (overrides the saved config) |
+| `BBP_OFFLINE=off\|auto\|mock\|local` | default offline backend for `analyze` |
+| `MODEL=provider/model` | model for the analysis step (as for `analyze.sh`) |
+| `NO_COLOR=1` | disable colour |
+
 ## License key
 
 The recon helpers (`h1scope.py`, `h1reports.py`, `h1report.py`) require a valid

@@ -20,6 +20,9 @@ jobs:
       - name: Run unit tests
         run: python3 -m pytest -q
 
+      - name: Run bbp launcher tests (offline, no OpenCode)
+        run: ./tests/test-bbp.sh
+
   smoke:
     runs-on: ubuntu-latest
     steps:
