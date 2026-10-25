@@ -42,7 +42,7 @@ expect_fail() {  # expect_fail "<name>" -- <command...>
 bash -n "$bbp" && printf 'ok   bash -n parses\n' && pass=$((pass + 1))
 
 # --- version / help ---
-check "version"      "bbp 1.0.0"  -- "$bbp" version
+check "version"      "bbp 1.1.0"  -- "$bbp" version
 check "help EN"      "Usage"      -- "$bbp" --lang en help
 check "help DE"      "Aufruf"     -- "$bbp" --lang de help
 check "help flag EN" "Usage"      -- "$bbp" --lang en --help
@@ -50,8 +50,11 @@ check "help flag EN" "Usage"      -- "$bbp" --lang en --help
 # --- doctor / status ---
 check "check EN online"  "online"             -- "$bbp" --lang en check
 check "check DE heading"  "Umgebungs-Check"   -- "$bbp" --lang de check
-check "check model mock" "mock/mock-1"        -- "$bbp" --lang en --offline=mock check
-check "check model local" "llamacpp/local"    -- "$bbp" --lang en --offline=local check
+# Offline leaves MODEL unset so analyze.sh auto-detects the loopback provider.
+check "check model auto"     "automatic (loopback)" -- "$bbp" --lang en --offline=mock check
+# An explicit loopback MODEL is still honoured and shown.
+check "check model explicit" "mock/mock-1" -- \
+  env MODEL=mock/mock-1 "$bbp" --lang en --offline=mock check
 
 # --- offline guard: external provider blocked when offline ---
 check "guard blocks external" "external provider blocked" -- \

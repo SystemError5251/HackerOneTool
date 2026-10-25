@@ -86,14 +86,23 @@ setup any time with `./test-pipeline.sh` (offline, no provider needed).
 ## `bbp` — one command for everything
 
 `bbp` is a single, bilingual entry point that bundles the recon helpers and the
-OpenCode analysis behind one coloured terminal UI. You pick the language right
-when you start it — interactively, or with `bbp --lang de|en` — and it's
-remembered in `~/.config/bbp/config`.
+OpenCode analysis behind one **full-screen terminal UI**. You pick the language
+right when you start it — with the arrow keys, or with `bbp --lang de|en` — and
+it's remembered in `~/.config/bbp/config`.
 
 ```bash
-./bbp                      # interactive menu (asks for a language first)
-./bbp --lang de            # force German, then the menu
+./bbp                      # full-screen UI (asks for a language first)
+./bbp --lang de            # force German, then the UI
+./bbp --no-tui             # plain line menu instead of the full-screen UI
 ```
+
+The UI has a title bar with the active language code, an inline `◄ Deutsch ►`
+switcher plus a searchable language list (press `l`), a categorised menu
+(RECON / ANALYSIS / SYSTEM) with a description per entry, a settings panel, and
+a keybind bar. Navigate with **↑↓**, open with **↵**, switch language with
+**←→**, and quit with **q**. On a non-interactive terminal (piped, or
+`--no-tui`/`NO_COLOR`) it falls back to a plain numbered menu, and every feature
+is a direct subcommand too.
 
 It also works non-interactively, so it's scriptable too — *„command für
 alles"*:
@@ -132,9 +141,11 @@ offline mode:
   run. No provider, API key, or real network needed (used by CI).
 - **local** — require the local llama.cpp server; error out if it isn't up.
 
-In any offline mode, a model that isn't a `mock/…` or `llamacpp/…` provider is
-**blocked** before OpenCode is invoked. Online mode (`--online`, the default)
-uses whatever provider/`MODEL` you've configured.
+In any offline mode, an external `MODEL` override is **blocked** before OpenCode
+is invoked, and `bbp` leaves the model unset so `analyze.sh` auto-selects the
+loopback provider itself. Online mode (`--online`, the default) passes an
+explicit `MODEL` through as-is; with none set, `analyze.sh` still runs OpenCode
+offline against a loopback model.
 
 | Environment variable | Meaning |
 |---|---|
