@@ -18,7 +18,9 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
   timeline. `--comments`, `--json`.
 - `h1common.py` — shared transport (User-Agent, retries/backoff, error
   handling, handle validation). All three CLIs import from it; keep new
-  network code here rather than re-implementing it per tool.
+  network code here rather than re-implementing it per tool. Each CLI exposes
+  its `--timeout`; the endpoint is read from `HACKERONE_GRAPHQL` (defaults to
+  the public API, overridden by the mock server and tests).
 - `METHODOLOGY.md` — ATO/2FA-bypass and Tier 3 leak workflow.
 - `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
 - `mock_model_server.py` — fake OpenAI-compatible model for offline pipeline

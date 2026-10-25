@@ -57,13 +57,13 @@ python3 h1scope.py mercadolibre            # scope table
 python3 h1scope.py mercadolibre --all      # include out-of-scope entries
 python3 h1scope.py mercadolibre --policy   # also dump the policy text
 python3 h1scope.py mercadolibre --json     # raw JSON for scripting
+python3 h1scope.py mercadolibre --timeout 10   # cap each request at 10s
 ```
 
-No dependencies beyond the Python 3 standard library. All three share
-`h1common.py` for transport: a User-Agent, bounded retries with backoff on
-rate-limits and transient errors, clean one-line error messages, and
-program-handle validation. Every tool also takes `--timeout <seconds>`, and the
-endpoint can be overridden with the `HACKERONE_GRAPHQL` environment variable.
+No dependencies beyond the Python 3 standard library. All three tools share
+`h1common.py` for transport — see [Transport, errors & retries](#transport-errors--retries)
+below for the `--timeout` flag, the `HACKERONE_GRAPHQL` override, retry
+behaviour, and error messages.
 
 ## `h1reports.py`
 
@@ -77,6 +77,7 @@ python3 h1reports.py mercadolibre
 python3 h1reports.py mercadolibre --limit 50
 python3 h1reports.py mercadolibre --grep "2fa|account takeover|ato"
 python3 h1reports.py mercadolibre --json
+python3 h1reports.py mercadolibre --timeout 10   # per-request timeout
 ```
 
 Also stdlib-only and read-only against HackerOne's public API.
@@ -91,7 +92,49 @@ the API, so it links to the report page for the write-up.
 python3 h1report.py 2289836
 python3 h1report.py https://hackerone.com/reports/2289836 --comments
 python3 h1report.py 2289836 --json
+python3 h1report.py 2289836 --timeout 10         # per-request timeout
 ```
+
+## Transport, errors & retries
+
+All three helpers talk to HackerOne's public GraphQL API through the shared
+`h1common.py` module, so they behave identically on the wire. It is standard
+library only and stays read-only — it sends nothing to a program's target
+assets.
+
+**Request behaviour**
+
+- Each request is sent with a descriptive `User-Agent` and a timeout. The
+  timeout defaults to **30 seconds** and is set per invocation with
+  `--timeout <seconds>` (accepted by every tool).
+- The endpoint defaults to `https://hackerone.com/graphql` and can be
+  overridden with the `HACKERONE_GRAPHQL` environment variable (used by the
+  offline mock server and the test suite).
+- Program handles are validated before they go into a query, so a handle with
+  spaces, quotes, or query operators is rejected instead of silently changing
+  what the query matches.
+
+**Retries** — on a rate-limit (HTTP 429), a server error (HTTP 5xx), or a
+transient network error, the request is retried up to **3 times** with
+exponential backoff (1s, 2s, 4s), each wait capped at 8 seconds. A
+`Retry-After` header on a 429 response is honoured when present (also capped at
+8 seconds). Other `4xx` responses and GraphQL-level
+errors are **not** retried — they fail immediately.
+
+**Errors** — expected failures are printed as a single `error: <message>` line
+to stderr with exit code `1`, never a Python traceback. They are raised as
+`h1common.H1Error`, and cover:
+
+| Message | Cause |
+|---|---|
+| `error: invalid program handle: '…' (expected letters, digits, '.', '_' or '-')` | handle failed validation |
+| `error: HTTP <code> from hackerone.com: <reason>` | non-retryable HTTP error (e.g. 404), or retries exhausted |
+| `error: network error reaching hackerone.com: <reason>` | connection/timeout error after retries |
+| `error: GraphQL error: <messages>` | the API returned GraphQL errors |
+| `error: invalid JSON from hackerone.com: …` | a malformed response body |
+
+Piping a tool's output into a reader that closes early (e.g. `| head`) exits
+cleanly with no broken-pipe traceback, and `Ctrl-C` exits with code `130`.
 
 ## OpenCode integration
 
