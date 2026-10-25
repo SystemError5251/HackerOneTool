@@ -22,9 +22,12 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
   tool. Each CLI exposes its `--timeout`; the endpoint is read from
   `HACKERONE_GRAPHQL` (defaults to the public API, overridden by the mock
   server and tests).
-- `h1license.py` — mint/check/install license keys, fully offline. The recon
-  helpers require a valid key (`verify_license`, called from `run_cli`); this
-  tool runs without one (`run_cli(..., require_license=False)`).
+- `h1license.py` — keygen/new/check/install license keys, fully offline. The
+  recon helpers require a valid key (`verify_license`, called from `run_cli`);
+  this tool runs without one (`run_cli(..., require_license=False)`).
+- `h1crypto.py` — minimal Ed25519 (RFC 8032 reference, stdlib `hashlib` only),
+  used to sign and verify license keys. Keep crypto here; don't add a
+  third-party crypto dependency.
 - `METHODOLOGY.md` — ATO/2FA-bypass and Tier 3 leak workflow.
 - `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
 - `mock_model_server.py` — fake OpenAI-compatible model for offline pipeline
@@ -53,8 +56,11 @@ This repo supports **authorized** testing only. When extending it:
 - Validate any program handle with `h1common.valid_handle` before putting it in
   a query; raise `h1common.H1Error` for user-facing failures.
 - The recon helpers run through `h1common.run_cli`, which checks the license
-  gate first; set a valid `HACKERONETOOL_LICENSE` (mint one with
-  `./h1license.py new`) before a manual run. The license scheme is offline and
-  stdlib-only — do not add network/phone-home validation without asking.
+  gate first. Keys are Ed25519 signatures verified against
+  `h1common.LICENSE_PUBLIC_KEY_HEX` (override with `HACKERONETOOL_PUBLIC_KEY`).
+  For a manual run, issue a key with `./h1license.py new` (needs the signing
+  key) and set `HACKERONETOOL_LICENSE`. The scheme is offline and stdlib-only —
+  do not add network/phone-home validation or a crypto dependency without
+  asking.
 - Match the existing style (type hints, small focused functions).
 - Run a quick manual check against `mercadolibre` after changes.

@@ -18,11 +18,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 port="8787"
 model="mock/mock-1"
 server_pid=""
-
-# The recon helpers require a valid license key (see README "License key").
-# Mint a throwaway one for this offline smoke run so analyze.sh can call them.
-# Fully local — h1license.py generates and validates keys without any network.
-export HACKERONETOOL_LICENSE="${HACKERONETOOL_LICENSE:-$(python3 "$here/h1license.py" new)}"
+keydir=""
 
 cleanup() {
   if [[ -n "$server_pid" ]]; then
@@ -31,8 +27,21 @@ cleanup() {
   fi
   # fallback: make sure nothing we started is still bound to the port
   pkill -f "mock_model_server.py --port $port" 2>/dev/null || true
+  [[ -n "$keydir" ]] && rm -rf "$keydir"
 }
 trap cleanup EXIT
+
+# The recon helpers require a valid, signed license key (see README "License
+# key"). For this offline smoke run, generate a throwaway signing keypair,
+# point the verifier at its public key, and issue a key from it — so the smoke
+# test needs no operator secret. Fully local: no network, no phone-home.
+if [[ -z "${HACKERONETOOL_LICENSE:-}" ]]; then
+  keydir="$(mktemp -d)"
+  python3 "$here/h1license.py" keygen --out "$keydir/sk" >/dev/null
+  export HACKERONETOOL_PUBLIC_KEY="$(cat "$keydir/sk.pub")"
+  export HACKERONETOOL_LICENSE="$(HACKERONETOOL_SIGNING_KEY_FILE="$keydir/sk" \
+    python3 "$here/h1license.py" new --subject ci)"
+fi
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
