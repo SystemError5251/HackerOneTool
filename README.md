@@ -45,6 +45,47 @@ cd HackerOneTool && git pull --ff-only origin main && chmod +x *.py *.sh && open
 The helpers need no Python packages — standard library only. Verify a working
 setup any time with `./test-pipeline.sh` (offline, no provider needed).
 
+## License key
+
+The recon helpers (`h1scope.py`, `h1reports.py`, `h1report.py`) require a valid
+**license key** and refuse to run without one. Cloning the repository is not
+enough — a `git clone` only copies files and runs no code on the cloner's
+machine, so there is no way to verify anything *at clone time*. Instead the
+check runs when a tool starts, before it does any work.
+
+**Provide a key** either way:
+
+```bash
+export HACKERONETOOL_LICENSE="H1-XXXXX-XXXXX-XXXXX-XXXXX"   # per shell, or
+./h1license.py install H1-XXXXX-XXXXX-XXXXX-XXXXX           # save to ~/.hackeronetool/license
+```
+
+A tool looks for the key in this order: the `HACKERONETOOL_LICENSE`
+environment variable, then a file at `HACKERONETOOL_LICENSE_FILE`, then the
+default `~/.hackeronetool/license`. Without a valid key you get a clean
+one-line error and exit `1` — no traceback:
+
+```
+error: no license key found. Set the HACKERONETOOL_LICENSE environment variable, ...
+```
+
+**Mint and check keys** with the bundled, fully offline `h1license.py` (it needs
+no license itself):
+
+```bash
+./h1license.py new                 # mint a random key
+./h1license.py new --count 5       # mint several
+./h1license.py check <key>         # verify a key (exit 0 = valid)
+./h1license.py install <key>       # save a valid key to the default file
+```
+
+The scheme is deliberately **offline** — a key is a serial plus a checksum
+derived from it, validated locally with no network call, no phone-home, and no
+clock. It is a *usage gate*, not copy protection: because the validation lives
+in the open-source `h1common.py`, anyone who reads it can generate a key. If you
+want keys that only you can issue, that needs a signing secret you keep private
+(or online activation) — say the word and we can add it.
+
 ## `h1scope.py`
 
 Step 1 of any engagement: know exactly what you are allowed to touch. Given a

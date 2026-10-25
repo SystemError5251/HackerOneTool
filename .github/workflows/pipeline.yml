@@ -33,7 +33,7 @@ jobs:
         run: npm i -g opencode-ai
 
       - name: Compile-check the helpers
-        run: python3 -m py_compile h1common.py h1scope.py h1reports.py h1report.py mock_model_server.py
+        run: python3 -m py_compile h1common.py h1scope.py h1reports.py h1report.py h1license.py mock_model_server.py
 
       - name: Run offline pipeline smoke test
         run: ./test-pipeline.sh
