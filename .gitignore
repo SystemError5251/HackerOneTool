@@ -3,3 +3,8 @@ __pycache__/
 
 # SSH tunnel local config
 tunnel.conf
+
+# License signing keys — never commit the private key
+signing_key
+signing_key.pub
+*.signing_key

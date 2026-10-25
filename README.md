@@ -45,6 +45,67 @@ cd HackerOneTool && git pull --ff-only origin main && chmod +x *.py *.sh && open
 The helpers need no Python packages — standard library only. Verify a working
 setup any time with `./test-pipeline.sh` (offline, no provider needed).
 
+## License key
+
+The recon helpers (`h1scope.py`, `h1reports.py`, `h1report.py`) require a valid
+**license key** and refuse to run without one. Cloning the repository is not
+enough — a `git clone` only copies files and runs no code on the cloner's
+machine, so there is no way to verify anything *at clone time*. Instead the
+check runs when a tool starts, before it does any work.
+
+Keys are **Ed25519 signatures**: you issue them with a private signing key that
+only you hold, and the tools verify them **offline** against the public key
+embedded in `h1common.py`. Nobody without your private key can forge a valid
+key, and verification makes no network call — no phone-home, no clock.
+
+### Using a key
+
+```bash
+export HACKERONETOOL_LICENSE="H1K1.<payload>.<signature>"   # per shell, or
+./h1license.py install H1K1.<payload>.<signature>           # save to ~/.hackeronetool/license
+```
+
+A tool looks for the key in this order: the `HACKERONETOOL_LICENSE` environment
+variable, then a file at `HACKERONETOOL_LICENSE_FILE`, then the default
+`~/.hackeronetool/license`. Without a valid key you get a clean one-line error
+and exit `1` — no traceback:
+
+```
+error: no license key found. Set the HACKERONETOOL_LICENSE environment variable, ...
+```
+
+### Issuing keys (operator, one-time setup)
+
+1. **Generate your signing keypair** (do this once; keep the private key safe
+   and out of the repo — it is gitignored):
+
+   ```bash
+   ./h1license.py keygen            # writes ~/.hackeronetool/signing_key (+ .pub)
+   ```
+
+2. **Embed your public key** so the tools trust keys you sign: copy the public
+   key it prints into `LICENSE_PUBLIC_KEY_HEX` near the top of `h1common.py`,
+   and commit that change.
+
+3. **Issue keys** to whoever is authorized:
+
+   ```bash
+   ./h1license.py new                 # a key with a random id
+   ./h1license.py new --subject acme  # a key tied to a licensee/id
+   ./h1license.py check <key>         # verify against the embedded public key
+   ./h1license.py install <key>       # save a valid key to the default file
+   ```
+
+The signing key is read from `--key-file`, else `$HACKERONETOOL_SIGNING_KEY`,
+else `$HACKERONETOOL_SIGNING_KEY_FILE`, else `~/.hackeronetool/signing_key`.
+
+> **Security note.** Until you replace the embedded public key with your own
+> (step 2), the repo ships with a default public key whose private half is a
+> bootstrap key — fine for trying it out, not for real gating. Rotating to your
+> own keypair is what makes keys issuable only by you. The private key never
+> lives in this repo. This gates *who can mint keys*; it is not DRM against
+> someone who edits their own checkout.
+
 ## `h1scope.py`
 
 Step 1 of any engagement: know exactly what you are allowed to touch. Given a
