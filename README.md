@@ -2,10 +2,42 @@
 
 Helpers for **authorized** bug-bounty work on HackerOne programs.
 
-The only rule that matters: test an asset only when the program lists it as
-`eligible_for_submission`, use accounts you own or provisioned test users, and
-follow that program's written policy. These tools are read-only recon against
-HackerOne's own public API — they send no traffic to any target's assets.
+> [!IMPORTANT]
+> **Authorized testing only — stay in scope.** Use these tools and the workflow
+> in [`METHODOLOGY.md`](METHODOLOGY.md) *only* against programs and assets you
+> are permitted to test: an asset the program lists as
+> `eligible_for_submission`, tested with accounts you own or provisioned test
+> users, following that program's written policy. The recon helpers are
+> read-only against HackerOne's own public API and send no traffic to any
+> target's assets. Using any part of this against systems you are not
+> authorized to test is out of scope here, violates the AUP, and is likely
+> illegal — don't.
+
+## Acceptable use
+
+This project exists for **authorized** security testing and research only, in
+line with Anthropic's
+[Acceptable Use Policy](https://www.anthropic.com/legal/aup) (the AUP permits
+authorized pentesting and security research; it prohibits unauthorized access,
+attacks on systems you don't have permission to test, malware, and misuse of
+data). Concretely, within this repo:
+
+- **In scope only** — test an asset only when the target program authorizes it,
+  and follow its policy and rules of engagement.
+- **Your own accounts** — exercise flows (including the ATO / 2FA workflow in
+  `METHODOLOGY.md`) against accounts you own or test users you provisioned,
+  never a real user's account or data.
+- **No attack traffic from these helpers** — `h1scope.py`, `h1reports.py`, and
+  `h1report.py` only read HackerOne's public API; they do not scan,
+  brute-force, probe rate limits, or send payloads to a program's assets, and
+  must not be extended to.
+- **Leaks are confirm-only** — validate a finding non-destructively and report
+  it; never exfiltrate, reuse, or act on discovered secrets.
+- **`ssh-tunnel.sh`** is for reaching hosts you're authorized to access through
+  a bastion you control — not for tunnelling into anything else.
+
+The agent guardrails in [`AGENTS.md`](AGENTS.md) encode these same rules for any
+AI coding agent working in the repo.
 
 ## Install / Update / Upgrade
 

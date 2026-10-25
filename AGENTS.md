@@ -29,7 +29,11 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
 
 ## Guardrails (do not weaken these)
 
-This repo supports **authorized** testing only. When extending it:
+This repo supports **authorized** testing only, consistent with Anthropic's
+[Acceptable Use Policy](https://www.anthropic.com/legal/aup) — authorized
+pentesting and security research are fine; unauthorized access, attacks on
+systems you lack permission to test, malware, and misuse of data are not. When
+extending it:
 
 - Keep the tools read-only against HackerOne's public API. Do not add code that
   sends requests to a program's target assets, scans, brute-forces, or probes
