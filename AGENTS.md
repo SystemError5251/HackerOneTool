@@ -29,7 +29,12 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
   used to sign and verify license keys. Keep crypto here; don't add a
   third-party crypto dependency.
 - `METHODOLOGY.md` — ATO/2FA-bypass and Tier 3 leak workflow.
-- `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
+- `analyze.sh` — pipes a helper's output into `opencode run` for analysis. It
+  sources `opencode-env.sh` and auto-selects a loopback model (local
+  llama-server on `:8080`, else the mock on `:8787`).
+- `opencode-env.sh` — the offline lock (extracted from the OPENCODE-LOCAL
+  project): disables OpenCode autoupdate, telemetry, the models.dev catalogue
+  download, LSP downloads and cloud plugins, and keeps loopback off any proxy.
 - `mock_model_server.py` — fake OpenAI-compatible model for offline pipeline
   testing (the `mock` provider in `opencode.json`). No real LLM, no network.
 - `.opencode/command/` — `/analyze-program`, `/analyze-report`, `/scope`.
@@ -51,6 +56,10 @@ extending it:
 - Leak handling is confirm-only: never add code that exfiltrates or reuses
   discovered secrets beyond a single non-destructive validation.
 - Preserve the "test only in-scope, authorized programs" framing in docs.
+- Keep the OpenCode layer offline: providers in `opencode.json` must stay
+  loopback-only (`127.0.0.1`), and the `opencode-env.sh` lock plus the
+  `webfetch`/`websearch`/network-command denials must not be relaxed. Do not
+  add a cloud provider or `opencode auth login` step back in.
 
 ## Conventions
 
