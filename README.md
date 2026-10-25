@@ -128,6 +128,8 @@ to stderr with exit code `1`, never a Python traceback. They are raised as
 | Message | Cause |
 |---|---|
 | `error: invalid program handle: '…' (expected letters, digits, '.', '_' or '-')` | handle failed validation |
+| `error: No program found for handle '…'.` | the handle resolved to no program (`h1scope.py`) |
+| `error: report <id> not found or not public` | the report id isn't a public, disclosed report (`h1report.py`) |
 | `error: HTTP <code> from hackerone.com: <reason>` | non-retryable HTTP error (e.g. 404), or retries exhausted |
 | `error: network error reaching hackerone.com: <reason>` | connection/timeout error after retries |
 | `error: GraphQL error: <messages>` | the API returned GraphQL errors |

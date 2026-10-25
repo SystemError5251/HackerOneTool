@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 
-from h1common import DEFAULT_TIMEOUT, graphql, run_cli, valid_handle
+from h1common import DEFAULT_TIMEOUT, H1Error, graphql, run_cli, valid_handle
 
 SCOPE_QUERY = """
 query Scopes($handle: String!) {
@@ -59,14 +59,14 @@ query Policy($handle: String!) {
 def fetch_scopes(handle: str, timeout: float) -> dict:
     team = graphql(SCOPE_QUERY, {"handle": valid_handle(handle)}, timeout=timeout)["team"]
     if team is None:
-        raise RuntimeError(f"No program found for handle '{handle}'.")
+        raise H1Error(f"No program found for handle '{handle}'.")
     return team
 
 
 def fetch_policy(handle: str, timeout: float) -> str:
     team = graphql(POLICY_QUERY, {"handle": valid_handle(handle)}, timeout=timeout)["team"]
     if team is None:
-        raise RuntimeError(f"No program found for handle '{handle}'.")
+        raise H1Error(f"No program found for handle '{handle}'.")
     return team.get("policy") or ""
 
 

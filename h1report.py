@@ -21,7 +21,7 @@ import json
 import re
 import sys
 
-from h1common import DEFAULT_TIMEOUT, graphql, run_cli
+from h1common import DEFAULT_TIMEOUT, H1Error, graphql, run_cli
 
 REPORT_QUERY = """
 query Report($id: Int!) {
@@ -71,7 +71,7 @@ def parse_id(raw: str) -> int:
 def fetch_report(report_id: int, timeout: float = DEFAULT_TIMEOUT) -> dict:
     report = graphql(REPORT_QUERY, {"id": report_id}, timeout=timeout)["report"]
     if report is None:
-        raise RuntimeError(f"report {report_id} not found or not public")
+        raise H1Error(f"report {report_id} not found or not public")
     return report
 
 
