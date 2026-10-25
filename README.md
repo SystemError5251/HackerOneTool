@@ -53,6 +53,10 @@ npm i -g opencode-ai        # optional: only for analyze.sh / slash commands
 opencode auth login         # optional: pick a model provider
 ```
 
+The recon helpers need only Python 3 (`pkg install python` on Termux) and no
+packages. OpenCode is optional; on **Termux/Android** it has no official build —
+see [Termux / Android](#termux--android-no-official-build) for the working paths.
+
 One-liner (clone + setup):
 
 ```bash
@@ -211,6 +215,40 @@ opencode run --model mock/mock-1 "hello"                   # offline, see below
 
 No provider yet? Use the offline mock model (next section) to exercise the whole
 terminal flow with no API key. Upgrade the CLI any time with `opencode upgrade`.
+
+The methods above work on ordinary glibc Linux (x86_64 / arm64) and macOS.
+
+#### Termux / Android (no official build)
+
+OpenCode has **no official Termux build**. `npm i -g opencode-ai` fails there
+because the `opencode-android-arm64` package is unpublished, and the prebuilt
+binary is a glibc/PIE executable that Termux's bionic libc can't run
+([#12515](https://github.com/anomalyco/opencode/issues/12515),
+[#10504](https://github.com/anomalyco/opencode/issues/10504),
+[#11689](https://github.com/anomalyco/opencode/issues/11689)). Options, in order
+of preference:
+
+1. **Run a real Linux in Termux with `proot-distro`** — stays on the upstream
+   build; the most reliable on-device path:
+   ```bash
+   pkg install proot-distro
+   proot-distro install debian
+   proot-distro login debian
+   # then inside Debian: apt install nodejs npm && npm i -g opencode-ai
+   ```
+2. **Community native installer** —
+   [`vjaykrsna/opencode-termux-native`](https://github.com/vjaykrsna/opencode-termux-native)
+   patches the glibc binary to run natively on Termux. Its README warns **not**
+   to run `opencode upgrade` without its launcher.
+3. **Community `.deb`** — [`guysoft/opencode-termux`](https://github.com/guysoft/opencode-termux)
+   ships an aarch64 build (`ripgrep` is the only extra dep).
+
+These are third-party; review what their installers do before running them.
+
+**You don't need OpenCode for the recon helpers.** `h1scope.py`, `h1reports.py`,
+and `h1report.py` are pure Python 3 standard library and run fine on Termux as-is
+(`pkg install python`). OpenCode is only needed for `analyze.sh`, `test-pipeline.sh`,
+and the slash commands — the AI-analysis layer on top.
 
 ### Analyze from the terminal
 
