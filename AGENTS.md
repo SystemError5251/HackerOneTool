@@ -16,6 +16,11 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
   `--limit`, `--json`.
 - `h1report.py <id|url>` — one disclosed report's metadata and lifecycle
   timeline. `--comments`, `--json`.
+- `h1common.py` — shared transport (User-Agent, retries/backoff, error
+  handling, handle validation). All three CLIs import from it; keep new
+  network code here rather than re-implementing it per tool. Each CLI exposes
+  its `--timeout`; the endpoint is read from `HACKERONE_GRAPHQL` (defaults to
+  the public API, overridden by the mock server and tests).
 - `METHODOLOGY.md` — ATO/2FA-bypass and Tier 3 leak workflow.
 - `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
 - `mock_model_server.py` — fake OpenAI-compatible model for offline pipeline
@@ -24,7 +29,11 @@ program's target assets, so they cannot violate a program's "no scanning" rule.
 
 ## Guardrails (do not weaken these)
 
-This repo supports **authorized** testing only. When extending it:
+This repo supports **authorized** testing only, consistent with Anthropic's
+[Acceptable Use Policy](https://www.anthropic.com/legal/aup) — authorized
+pentesting and security research are fine; unauthorized access, attacks on
+systems you lack permission to test, malware, and misuse of data are not. When
+extending it:
 
 - Keep the tools read-only against HackerOne's public API. Do not add code that
   sends requests to a program's target assets, scans, brute-forces, or probes
@@ -40,6 +49,8 @@ This repo supports **authorized** testing only. When extending it:
 
 - Python 3, standard library only — no third-party dependencies.
 - Each tool: a module docstring with usage, `argparse` CLI, a `--json` mode,
-  errors to stderr with a non-zero exit.
+  errors to stderr with a non-zero exit (via `h1common.run_cli`).
+- Validate any program handle with `h1common.valid_handle` before putting it in
+  a query; raise `h1common.H1Error` for user-facing failures.
 - Match the existing style (type hints, small focused functions).
 - Run a quick manual check against `mercadolibre` after changes.

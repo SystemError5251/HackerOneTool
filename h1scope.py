@@ -21,9 +21,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import urllib.request
 
-GRAPHQL_URL = "https://hackerone.com/graphql"
+from h1common import DEFAULT_TIMEOUT, H1Error, graphql, run_cli, valid_handle
 
 SCOPE_QUERY = """
 query Scopes($handle: String!) {
@@ -57,33 +56,17 @@ query Policy($handle: String!) {
 """
 
 
-def graphql(query: str, variables: dict) -> dict:
-    """POST a GraphQL query and return the parsed JSON, or raise on error."""
-    payload = json.dumps({"query": query, "variables": variables}).encode()
-    req = urllib.request.Request(
-        GRAPHQL_URL,
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = json.load(resp)
-    if body.get("errors"):
-        msgs = "; ".join(e.get("message", "?") for e in body["errors"])
-        raise RuntimeError(f"GraphQL error: {msgs}")
-    return body["data"]
-
-
-def fetch_scopes(handle: str) -> dict:
-    team = graphql(SCOPE_QUERY, {"handle": handle})["team"]
+def fetch_scopes(handle: str, timeout: float) -> dict:
+    team = graphql(SCOPE_QUERY, {"handle": valid_handle(handle)}, timeout=timeout)["team"]
     if team is None:
-        raise RuntimeError(f"No program found for handle '{handle}'.")
+        raise H1Error(f"No program found for handle '{handle}'.")
     return team
 
 
-def fetch_policy(handle: str) -> str:
-    team = graphql(POLICY_QUERY, {"handle": handle})["team"]
+def fetch_policy(handle: str, timeout: float) -> str:
+    team = graphql(POLICY_QUERY, {"handle": valid_handle(handle)}, timeout=timeout)["team"]
     if team is None:
-        raise RuntimeError(f"No program found for handle '{handle}'.")
+        raise H1Error(f"No program found for handle '{handle}'.")
     return team.get("policy") or ""
 
 
@@ -132,21 +115,21 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--json", action="store_true", help="emit raw scope JSON instead of a table")
     ap.add_argument("--all", action="store_true", help="include out-of-scope entries")
     ap.add_argument("--policy", action="store_true", help="also print the full program policy")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+                    help=f"request timeout in seconds (default {DEFAULT_TIMEOUT:g})")
     args = ap.parse_args(argv)
 
-    try:
-        team = fetch_scopes(args.handle)
+    def run() -> None:
+        team = fetch_scopes(args.handle, args.timeout)
         if args.json:
             print(json.dumps(team, indent=2))
         else:
             print_report(team, include_all=args.all)
         if args.policy:
             print("=" * 60)
-            print(fetch_policy(args.handle))
-    except (RuntimeError, urllib.error.URLError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    return 0
+            print(fetch_policy(args.handle, args.timeout))
+
+    return run_cli(run)
 
 
 if __name__ == "__main__":

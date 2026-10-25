@@ -21,10 +21,8 @@ import argparse
 import json
 import re
 import sys
-import urllib.error
-import urllib.request
 
-GRAPHQL_URL = "https://hackerone.com/graphql"
+from h1common import DEFAULT_TIMEOUT, graphql, run_cli, valid_handle
 
 # The Hacktivity index is a flat search index; a program's disclosed reports
 # are selected with the `team_handle` field plus `disclosed:true`.
@@ -54,31 +52,16 @@ query Hacktivity($q: String!, $from: Int!, $size: Int!) {
 """
 
 
-def graphql(query: str, variables: dict) -> dict:
-    payload = json.dumps({"query": query, "variables": variables}).encode()
-    req = urllib.request.Request(
-        GRAPHQL_URL,
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = json.load(resp)
-    if body.get("errors"):
-        msgs = "; ".join(e.get("message", "?") for e in body["errors"])
-        raise RuntimeError(f"GraphQL error: {msgs}")
-    return body["data"]
-
-
-def fetch_reports(handle: str, limit: int) -> tuple[int, list[dict]]:
+def fetch_reports(handle: str, limit: int, timeout: float = DEFAULT_TIMEOUT) -> tuple[int, list[dict]]:
     """Return (total_count, reports). Pages through the index as needed."""
-    q = f"team_handle:{handle} AND disclosed:true"
+    q = f"team_handle:{valid_handle(handle)} AND disclosed:true"
     reports: list[dict] = []
     total = 0
     page = 100  # index max page size
     offset = 0
     while len(reports) < limit:
         want = min(page, limit - offset)
-        data = graphql(SEARCH_QUERY, {"q": q, "from": offset, "size": want})["search"]
+        data = graphql(SEARCH_QUERY, {"q": q, "from": offset, "size": want}, timeout=timeout)["search"]
         total = data["total_count"]
         nodes = [n for n in data["nodes"] if n.get("report")]
         reports.extend(nodes)
@@ -121,18 +104,18 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--limit", type=int, default=25, help="max reports to fetch (default 25)")
     ap.add_argument("--grep", help="regex filtered against report titles (case-insensitive)")
     ap.add_argument("--json", action="store_true", help="emit raw JSON instead of a table")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+                    help=f"request timeout in seconds (default {DEFAULT_TIMEOUT:g})")
     args = ap.parse_args(argv)
 
-    try:
-        total, reports = fetch_reports(args.handle, max(args.limit, 1))
+    def run() -> None:
+        total, reports = fetch_reports(args.handle, max(args.limit, 1), args.timeout)
         if args.json:
             print(json.dumps({"total_count": total, "reports": reports}, indent=2))
         else:
             print_report(args.handle, total, reports, args.grep)
-    except (RuntimeError, urllib.error.URLError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    return 0
+
+    return run_cli(run)
 
 
 if __name__ == "__main__":

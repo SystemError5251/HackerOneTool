@@ -2,10 +2,42 @@
 
 Helpers for **authorized** bug-bounty work on HackerOne programs.
 
-The only rule that matters: test an asset only when the program lists it as
-`eligible_for_submission`, use accounts you own or provisioned test users, and
-follow that program's written policy. These tools are read-only recon against
-HackerOne's own public API — they send no traffic to any target's assets.
+> [!IMPORTANT]
+> **Authorized testing only — stay in scope.** Use these tools and the workflow
+> in [`METHODOLOGY.md`](METHODOLOGY.md) *only* against programs and assets you
+> are permitted to test: an asset the program lists as
+> `eligible_for_submission`, tested with accounts you own or provisioned test
+> users, following that program's written policy. The recon helpers are
+> read-only against HackerOne's own public API and send no traffic to any
+> target's assets. Using any part of this against systems you are not
+> authorized to test is out of scope here, violates the AUP, and is likely
+> illegal — don't.
+
+## Acceptable use
+
+This project exists for **authorized** security testing and research only, in
+line with Anthropic's
+[Acceptable Use Policy](https://www.anthropic.com/legal/aup) (the AUP permits
+authorized pentesting and security research; it prohibits unauthorized access,
+attacks on systems you don't have permission to test, malware, and misuse of
+data). Concretely, within this repo:
+
+- **In scope only** — test an asset only when the target program authorizes it,
+  and follow its policy and rules of engagement.
+- **Your own accounts** — exercise flows (including the ATO / 2FA workflow in
+  `METHODOLOGY.md`) against accounts you own or test users you provisioned,
+  never a real user's account or data.
+- **No attack traffic from these helpers** — `h1scope.py`, `h1reports.py`, and
+  `h1report.py` only read HackerOne's public API; they do not scan,
+  brute-force, probe rate limits, or send payloads to a program's assets, and
+  must not be extended to.
+- **Leaks are confirm-only** — validate a finding non-destructively and report
+  it; never exfiltrate, reuse, or act on discovered secrets.
+- **`ssh-tunnel.sh`** is for reaching hosts you're authorized to access through
+  a bastion you control — not for tunnelling into anything else.
+
+The agent guardrails in [`AGENTS.md`](AGENTS.md) encode these same rules for any
+AI coding agent working in the repo.
 
 ## Install / Update / Upgrade
 
@@ -57,9 +89,13 @@ python3 h1scope.py mercadolibre            # scope table
 python3 h1scope.py mercadolibre --all      # include out-of-scope entries
 python3 h1scope.py mercadolibre --policy   # also dump the policy text
 python3 h1scope.py mercadolibre --json     # raw JSON for scripting
+python3 h1scope.py mercadolibre --timeout 10   # cap each request at 10s
 ```
 
-No dependencies beyond the Python 3 standard library.
+No dependencies beyond the Python 3 standard library. All three tools share
+`h1common.py` for transport — see [Transport, errors & retries](#transport-errors--retries)
+below for the `--timeout` flag, the `HACKERONE_GRAPHQL` override, retry
+behaviour, and error messages.
 
 ## `h1reports.py`
 
@@ -73,6 +109,7 @@ python3 h1reports.py mercadolibre
 python3 h1reports.py mercadolibre --limit 50
 python3 h1reports.py mercadolibre --grep "2fa|account takeover|ato"
 python3 h1reports.py mercadolibre --json
+python3 h1reports.py mercadolibre --timeout 10   # per-request timeout
 ```
 
 Also stdlib-only and read-only against HackerOne's public API.
@@ -87,7 +124,51 @@ the API, so it links to the report page for the write-up.
 python3 h1report.py 2289836
 python3 h1report.py https://hackerone.com/reports/2289836 --comments
 python3 h1report.py 2289836 --json
+python3 h1report.py 2289836 --timeout 10         # per-request timeout
 ```
+
+## Transport, errors & retries
+
+All three helpers talk to HackerOne's public GraphQL API through the shared
+`h1common.py` module, so they behave identically on the wire. It is standard
+library only and stays read-only — it sends nothing to a program's target
+assets.
+
+**Request behaviour**
+
+- Each request is sent with a descriptive `User-Agent` and a timeout. The
+  timeout defaults to **30 seconds** and is set per invocation with
+  `--timeout <seconds>` (accepted by every tool).
+- The endpoint defaults to `https://hackerone.com/graphql` and can be
+  overridden with the `HACKERONE_GRAPHQL` environment variable (used by the
+  offline mock server and the test suite).
+- Program handles are validated before they go into a query, so a handle with
+  spaces, quotes, or query operators is rejected instead of silently changing
+  what the query matches.
+
+**Retries** — on a rate-limit (HTTP 429), a server error (HTTP 5xx), or a
+transient network error, the request is retried up to **3 times** with
+exponential backoff (1s, 2s, 4s), each wait capped at 8 seconds. A
+`Retry-After` header on a 429 response is honoured when present (also capped at
+8 seconds). Other `4xx` responses and GraphQL-level
+errors are **not** retried — they fail immediately.
+
+**Errors** — expected failures are printed as a single `error: <message>` line
+to stderr with exit code `1`, never a Python traceback. They are raised as
+`h1common.H1Error`, and cover:
+
+| Message | Cause |
+|---|---|
+| `error: invalid program handle: '…' (expected letters, digits, '.', '_' or '-')` | handle failed validation |
+| `error: No program found for handle '…'.` | the handle resolved to no program (`h1scope.py`) |
+| `error: report <id> not found or not public` | the report id isn't a public, disclosed report (`h1report.py`) |
+| `error: HTTP <code> from hackerone.com: <reason>` | non-retryable HTTP error (e.g. 404), or retries exhausted |
+| `error: network error reaching hackerone.com: <reason>` | connection/timeout error after retries |
+| `error: GraphQL error: <messages>` | the API returned GraphQL errors |
+| `error: invalid JSON from hackerone.com: …` | a malformed response body |
+
+Piping a tool's output into a reader that closes early (e.g. `| head`) exits
+cleanly with no broken-pipe traceback, and `Ctrl-C` exits with code `130`.
 
 ## OpenCode integration
 
