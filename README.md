@@ -89,38 +89,58 @@ enough — a `git clone` only copies files and runs no code on the cloner's
 machine, so there is no way to verify anything *at clone time*. Instead the
 check runs when a tool starts, before it does any work.
 
-**Provide a key** either way:
+Keys are **Ed25519 signatures**: you issue them with a private signing key that
+only you hold, and the tools verify them **offline** against the public key
+embedded in `h1common.py`. Nobody without your private key can forge a valid
+key, and verification makes no network call — no phone-home, no clock.
+
+### Using a key
 
 ```bash
-export HACKERONETOOL_LICENSE="H1-XXXXX-XXXXX-XXXXX-XXXXX"   # per shell, or
-./h1license.py install H1-XXXXX-XXXXX-XXXXX-XXXXX           # save to ~/.hackeronetool/license
+export HACKERONETOOL_LICENSE="H1K1.<payload>.<signature>"   # per shell, or
+./h1license.py install H1K1.<payload>.<signature>           # save to ~/.hackeronetool/license
 ```
 
-A tool looks for the key in this order: the `HACKERONETOOL_LICENSE`
-environment variable, then a file at `HACKERONETOOL_LICENSE_FILE`, then the
-default `~/.hackeronetool/license`. Without a valid key you get a clean
-one-line error and exit `1` — no traceback:
+A tool looks for the key in this order: the `HACKERONETOOL_LICENSE` environment
+variable, then a file at `HACKERONETOOL_LICENSE_FILE`, then the default
+`~/.hackeronetool/license`. Without a valid key you get a clean one-line error
+and exit `1` — no traceback:
 
 ```
 error: no license key found. Set the HACKERONETOOL_LICENSE environment variable, ...
 ```
 
-**Mint and check keys** with the bundled, fully offline `h1license.py` (it needs
-no license itself):
+### Issuing keys (operator, one-time setup)
 
-```bash
-./h1license.py new                 # mint a random key
-./h1license.py new --count 5       # mint several
-./h1license.py check <key>         # verify a key (exit 0 = valid)
-./h1license.py install <key>       # save a valid key to the default file
-```
+1. **Generate your signing keypair** (do this once; keep the private key safe
+   and out of the repo — it is gitignored):
 
-The scheme is deliberately **offline** — a key is a serial plus a checksum
-derived from it, validated locally with no network call, no phone-home, and no
-clock. It is a *usage gate*, not copy protection: because the validation lives
-in the open-source `h1common.py`, anyone who reads it can generate a key. If you
-want keys that only you can issue, that needs a signing secret you keep private
-(or online activation) — say the word and we can add it.
+   ```bash
+   ./h1license.py keygen            # writes ~/.hackeronetool/signing_key (+ .pub)
+   ```
+
+2. **Embed your public key** so the tools trust keys you sign: copy the public
+   key it prints into `LICENSE_PUBLIC_KEY_HEX` near the top of `h1common.py`,
+   and commit that change.
+
+3. **Issue keys** to whoever is authorized:
+
+   ```bash
+   ./h1license.py new                 # a key with a random id
+   ./h1license.py new --subject acme  # a key tied to a licensee/id
+   ./h1license.py check <key>         # verify against the embedded public key
+   ./h1license.py install <key>       # save a valid key to the default file
+   ```
+
+The signing key is read from `--key-file`, else `$HACKERONETOOL_SIGNING_KEY`,
+else `$HACKERONETOOL_SIGNING_KEY_FILE`, else `~/.hackeronetool/signing_key`.
+
+> **Security note.** Until you replace the embedded public key with your own
+> (step 2), the repo ships with a default public key whose private half is a
+> bootstrap key — fine for trying it out, not for real gating. Rotating to your
+> own keypair is what makes keys issuable only by you. The private key never
+> lives in this repo. This gates *who can mint keys*; it is not DRM against
+> someone who edits their own checkout.
 
 ## `h1scope.py`
 

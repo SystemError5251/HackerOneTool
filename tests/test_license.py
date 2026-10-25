@@ -1,59 +1,117 @@
-"""Tests for the offline license gate in ``h1common``.
+"""Tests for the offline, signature-based license gate in ``h1common``.
 
-Everything here is local and deterministic — no network, no clock. The gate's
-job is only to let a valid key through and to refuse a missing or malformed one
-with a clean message, so that is what these tests pin down.
+Everything here is local and deterministic — no network, no clock. Keys are
+Ed25519 signatures; the tests generate a throwaway keypair, point the verifier
+at its public key via the env override, and check that only keys signed by the
+matching private key pass. The underlying Ed25519 primitives have their own
+RFC 8032 vector test in ``test_h1crypto.py``.
 """
 from __future__ import annotations
 
 import pytest
 
 import h1common
+import h1crypto
+
+
+@pytest.fixture()
+def operator_key(monkeypatch):
+    """A fresh signing keypair, installed as the verifier's public key."""
+    priv, pub = h1crypto.keypair()
+    monkeypatch.setenv(h1common.LICENSE_PUBLIC_KEY_ENV, pub.hex())
+    return priv.hex(), pub.hex()
+
+
+def _issue(priv_hex, subject="tester"):
+    return h1common.sign_license(subject, priv_hex)
 
 
 # --------------------------------------------------------------------------
-# Key format: mint, validate, reject
+# Signing + verifying
 # --------------------------------------------------------------------------
-def test_make_key_is_valid_and_well_formed():
-    key = h1common.make_license_key()
+def test_issued_key_is_valid_and_well_formed(operator_key):
+    priv_hex, _ = operator_key
+    key = _issue(priv_hex, "acme-corp")
     assert h1common.license_key_valid(key)
-    # H1- prefix + four 5-char groups joined by dashes.
-    parts = key.split("-")
-    assert parts[0] == "H1"
-    assert len(parts) == 5
-    assert all(len(p) == 5 for p in parts[1:])
-    assert all(c in h1common._KEY_ALPHABET for p in parts[1:] for c in p)
+    assert key.startswith(h1common.LICENSE_PREFIX + ".")
+    assert len(key.split(".")) == 3
+    assert h1common.license_subject(key) == "acme-corp"
 
 
-def test_make_key_is_deterministic_for_a_serial():
-    a = h1common.make_license_key("ABCDE12345FGHJK")
-    b = h1common.make_license_key("ABCDE12345FGHJK")
-    assert a == b
-    assert h1common.license_key_valid(a)
+def test_key_without_subject_gets_a_random_one(operator_key):
+    priv_hex, _ = operator_key
+    a = _issue(priv_hex, None)
+    b = _issue(priv_hex, None)
+    assert a != b  # random payloads
+    assert h1common.license_key_valid(a) and h1common.license_key_valid(b)
 
 
-def test_make_key_rejects_bad_serial():
+def test_whitespace_around_key_is_tolerated(operator_key):
+    priv_hex, _ = operator_key
+    key = _issue(priv_hex)
+    assert h1common.license_key_valid(f"  {key}\n")
+
+
+# --------------------------------------------------------------------------
+# Forgery resistance — the whole point of the scheme
+# --------------------------------------------------------------------------
+def test_key_from_a_different_private_key_is_rejected(operator_key):
+    # A key issued by someone else's signing key must not validate against the
+    # operator's public key.
+    other_priv, _ = h1crypto.keypair()
+    forged = h1common.sign_license("mallory", other_priv.hex())
+    assert not h1common.license_key_valid(forged)
+    assert h1common.license_subject(forged) is None
+
+
+def test_tampered_subject_breaks_the_signature(operator_key):
+    priv_hex, _ = operator_key
+    key = h1common.sign_license("basic", priv_hex)
+    prefix, payload, sig = key.split(".")
+    # Swap in a different (valid-base64) payload while keeping the signature.
+    other_payload = h1common._b64url_encode(b"premium")
+    forged = ".".join((prefix, other_payload, sig))
+    assert not h1common.license_key_valid(forged)
+
+
+def test_garbage_and_empty_keys_are_rejected(operator_key):
+    for bad in ["", "not-a-key", "H1K1.only-two", "XXXX.aa.bb", "H1K1..", "H1K1.$$.$$"]:
+        assert not h1common.license_key_valid(bad)
+
+
+def test_flipping_a_signature_bit_is_rejected(operator_key):
+    priv_hex, _ = operator_key
+    key = _issue(priv_hex)
+    prefix, payload, sig = key.split(".")
+    raw = bytearray(h1common._b64url_decode(sig))
+    raw[0] ^= 0x01
+    forged = ".".join((prefix, payload, h1common._b64url_encode(bytes(raw))))
+    assert not h1common.license_key_valid(forged)
+
+
+# --------------------------------------------------------------------------
+# Public-key resolution
+# --------------------------------------------------------------------------
+def test_env_public_key_overrides_embedded(monkeypatch):
+    priv, pub = h1crypto.keypair()
+    monkeypatch.setenv(h1common.LICENSE_PUBLIC_KEY_ENV, pub.hex())
+    assert h1common.public_key_bytes() == pub
+
+
+def test_embedded_public_key_is_used_without_override(monkeypatch):
+    monkeypatch.delenv(h1common.LICENSE_PUBLIC_KEY_ENV, raising=False)
+    assert h1common.public_key_bytes() == bytes.fromhex(h1common.LICENSE_PUBLIC_KEY_HEX)
+
+
+def test_malformed_override_public_key_raises(monkeypatch):
+    monkeypatch.setenv(h1common.LICENSE_PUBLIC_KEY_ENV, "not-hex")
     with pytest.raises(h1common.H1Error):
-        h1common.make_license_key("TOO-SHORT")
+        h1common.public_key_bytes()
+
+
+def test_sign_license_rejects_bad_private_key():
     with pytest.raises(h1common.H1Error):
-        # 'I' is not in the Crockford-style alphabet.
-        h1common.make_license_key("IIIIIIIIIIIIIII")
-
-
-def test_valid_key_normalizes_case_whitespace_and_missing_dashes():
-    key = h1common.make_license_key("ABCDE12345FGHJK")
-    assert h1common.license_key_valid(key.lower())
-    assert h1common.license_key_valid(f"  {key}  ")
-    assert h1common.license_key_valid(key.replace("-", ""))
-
-
-def test_tampered_or_garbage_keys_are_rejected():
-    key = h1common.make_license_key("ABCDE12345FGHJK")
-    flipped = key[:-1] + ("A" if key[-1] != "A" else "B")
-    assert not h1common.license_key_valid(flipped)
-    assert not h1common.license_key_valid("")
-    assert not h1common.license_key_valid("not-a-key")
-    assert not h1common.license_key_valid("H1-AAAAA-AAAAA-AAAAA-AAAAA")
+        h1common.sign_license("x", "too-short")
 
 
 # --------------------------------------------------------------------------
@@ -79,16 +137,17 @@ def test_load_returns_none_when_nothing_found(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------
-# verify_license: the gate behaviour
+# verify_license + run_cli: the gate behaviour
 # --------------------------------------------------------------------------
 def _clear_license(monkeypatch, tmp_path):
     monkeypatch.delenv(h1common.LICENSE_ENV, raising=False)
     monkeypatch.setenv(h1common.LICENSE_FILE_ENV, str(tmp_path / "missing"))
 
 
-def test_verify_passes_with_valid_env_key(monkeypatch, tmp_path):
+def test_verify_passes_with_valid_env_key(monkeypatch, tmp_path, operator_key):
+    priv_hex, _ = operator_key
     _clear_license(monkeypatch, tmp_path)
-    monkeypatch.setenv(h1common.LICENSE_ENV, h1common.make_license_key())
+    monkeypatch.setenv(h1common.LICENSE_ENV, _issue(priv_hex))
     h1common.verify_license()  # should not raise
 
 
@@ -99,17 +158,14 @@ def test_verify_raises_when_missing(monkeypatch, tmp_path):
     assert "no license key" in str(e.value)
 
 
-def test_verify_raises_when_invalid(monkeypatch, tmp_path):
+def test_verify_raises_when_invalid(monkeypatch, tmp_path, operator_key):
     _clear_license(monkeypatch, tmp_path)
-    monkeypatch.setenv(h1common.LICENSE_ENV, "H1-AAAAA-AAAAA-AAAAA-AAAAA")
+    monkeypatch.setenv(h1common.LICENSE_ENV, "H1K1.AA.BB")
     with pytest.raises(h1common.H1Error) as e:
         h1common.verify_license()
     assert "invalid license key" in str(e.value)
 
 
-# --------------------------------------------------------------------------
-# run_cli: the gate runs before the body, and can be skipped
-# --------------------------------------------------------------------------
 def test_run_cli_blocks_body_without_license(monkeypatch, tmp_path, capsys):
     _clear_license(monkeypatch, tmp_path)
     ran = []
@@ -119,9 +175,10 @@ def test_run_cli_blocks_body_without_license(monkeypatch, tmp_path, capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_run_cli_runs_body_with_valid_license(monkeypatch, tmp_path):
+def test_run_cli_runs_body_with_valid_license(monkeypatch, tmp_path, operator_key):
+    priv_hex, _ = operator_key
     _clear_license(monkeypatch, tmp_path)
-    monkeypatch.setenv(h1common.LICENSE_ENV, h1common.make_license_key())
+    monkeypatch.setenv(h1common.LICENSE_ENV, _issue(priv_hex))
     ran = []
     rc = h1common.run_cli(lambda: ran.append(True))
     assert rc == 0

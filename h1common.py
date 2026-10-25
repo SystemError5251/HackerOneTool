@@ -9,11 +9,10 @@ The endpoint can be overridden with the HACKERONE_GRAPHQL environment variable
 """
 from __future__ import annotations
 
-import hashlib
+import base64
 import json
 import os
 import re
-import secrets
 import socket
 import sys
 import time
@@ -22,6 +21,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable
+
+import h1crypto
 
 GRAPHQL_URL = os.environ.get("HACKERONE_GRAPHQL", "https://hackerone.com/graphql")
 USER_AGENT = "HackerOneTool/1.0 (+https://github.com/SystemError5251/HackerOneTool)"
@@ -35,29 +36,36 @@ _HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$", re.IGNORECASE)
 # --------------------------------------------------------------------------
 # License gate
 #
-# A lightweight, fully offline check that runs before any helper does work, so
-# the tools are used deliberately by someone who holds a key rather than by
-# anyone who happens to clone the repo. There is no "verify on git clone" —
-# cloning only copies files and runs no code on the cloner's machine — so the
-# check runs at tool start-up instead.
+# A fully offline check that runs before any helper does work, so the tools are
+# used deliberately by someone who holds a valid key rather than by anyone who
+# happens to clone the repo. There is no "verify on git clone" — cloning only
+# copies files and runs no code on the cloner's machine — so the check runs at
+# tool start-up instead.
 #
-# The scheme is self-contained (no network, no phone-home, stdlib only): a key
-# is a serial plus a checksum derived from it, so a key can be validated with
-# nothing but this file. It is a usage gate, not DRM: because this module is
-# open source, anyone who reads it can mint a key, and that is by design.
+# A key is an Ed25519 signature, issued with a private signing key that only
+# the operator holds and verified here against the embedded *public* key. That
+# makes keys unforgeable (nobody without the private key can mint a valid one)
+# while keeping verification fully offline: no network, no phone-home, no clock.
+# The signing key never lives in this repo. Rotate the operator's keypair with
+# `h1license.py keygen` and paste the new public key into LICENSE_PUBLIC_KEY_HEX.
 # --------------------------------------------------------------------------
 LICENSE_ENV = "HACKERONETOOL_LICENSE"
 LICENSE_FILE_ENV = "HACKERONETOOL_LICENSE_FILE"
 DEFAULT_LICENSE_FILE = Path.home() / ".hackeronetool" / "license"
 
-# Crockford-style base32 alphabet (no I/L/O/U, to avoid look-alikes).
-_KEY_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-# Mixed into the checksum so a bare serial is not trivially a valid key. Not a
-# secret (it lives here in the open) — it only shapes the key format.
-_LICENSE_SALT = "HackerOneTool/license/v1"
-_KEY_RE = re.compile(
-    r"^H1-([0-9A-Z]{5})-([0-9A-Z]{5})-([0-9A-Z]{5})-([0-9A-Z]{5})$"
+# The operator's Ed25519 public key (hex). Replace this with your own from
+# `h1license.py keygen` so that only your private key can issue valid licenses.
+# Overridable at runtime with HACKERONETOOL_PUBLIC_KEY (used by tests/CI).
+LICENSE_PUBLIC_KEY_HEX = (
+    "d92b78820c728c983b4b46c97234c15b7a8eb2e7d3950f3ae1a20a6515ee9ddd"
 )
+LICENSE_PUBLIC_KEY_ENV = "HACKERONETOOL_PUBLIC_KEY"
+
+# Token: "H1K1.<b64url(payload)>.<b64url(signature)>". The signature covers
+# _LICENSE_DOMAIN + payload, so a key for one tool/version can't be replayed as
+# another. The payload is a short, human-meaningful subject (licensee/id).
+LICENSE_PREFIX = "H1K1"
+_LICENSE_DOMAIN = b"HackerOneTool-license-v1:"
 
 
 class H1Error(RuntimeError):
@@ -78,58 +86,86 @@ def valid_handle(handle: str) -> str:
     return handle
 
 
-def _normalize_key(key: str) -> str:
-    """Upper-case and strip separators/whitespace, keeping one 'H1-...' shape."""
-    cleaned = re.sub(r"\s+", "", key or "").upper()
-    # Accept keys pasted without dashes, e.g. "H1ABCDE...": re-insert them.
-    if cleaned.startswith("H1-"):
-        return cleaned
-    if cleaned.startswith("H1") and "-" not in cleaned and len(cleaned) == 22:
-        body = cleaned[2:]
-        groups = [body[i:i + 5] for i in range(0, 20, 5)]
-        return "H1-" + "-".join(groups)
-    return cleaned
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def _key_checksum(serial: str) -> str:
-    """Derive the 5-char checksum group from a 15-char serial, deterministically."""
-    digest = hashlib.sha256((_LICENSE_SALT + serial).encode()).digest()
-    n = int.from_bytes(digest[:8], "big")
-    out = []
-    for _ in range(5):
-        out.append(_KEY_ALPHABET[n & 31])
-        n >>= 5
-    return "".join(reversed(out))
+def _b64url_decode(text: str) -> bytes:
+    pad = "=" * (-len(text) % 4)
+    return base64.urlsafe_b64decode(text + pad)
+
+
+def public_key_bytes() -> bytes:
+    """The public key licenses are verified against (env override, else embedded)."""
+    hex_key = os.environ.get(LICENSE_PUBLIC_KEY_ENV) or LICENSE_PUBLIC_KEY_HEX
+    try:
+        key = bytes.fromhex(hex_key.strip())
+    except ValueError as e:
+        raise H1Error(f"malformed public key ({LICENSE_PUBLIC_KEY_ENV}): {e}") from e
+    if len(key) != 32:
+        raise H1Error("public key must be 32 bytes (64 hex chars)")
+    return key
+
+
+def _split_key(key: str) -> tuple[bytes, bytes] | None:
+    """Parse a token into (payload, signature) bytes, or None if malformed."""
+    parts = (key or "").strip().split(".")
+    if len(parts) != 3 or parts[0] != LICENSE_PREFIX:
+        return None
+    try:
+        payload = _b64url_decode(parts[1])
+        signature = _b64url_decode(parts[2])
+    except (ValueError, base64.binascii.Error):
+        return None
+    return payload, signature
 
 
 def license_key_valid(key: str) -> bool:
-    """Return True if ``key`` is a well-formed, checksum-correct license key.
+    """Return True iff ``key`` is a valid, correctly signed license key.
 
-    Pure and offline: no network, no clock, no side effects.
+    Pure and offline: verifies the Ed25519 signature against the public key.
+    No network, no clock, no side effects; never raises on a malformed key.
     """
-    m = _KEY_RE.match(_normalize_key(key))
-    if not m:
+    parsed = _split_key(key)
+    if parsed is None:
         return False
-    g1, g2, g3, chk = m.groups()
-    return secrets.compare_digest(_key_checksum(g1 + g2 + g3), chk)
+    payload, signature = parsed
+    try:
+        pub = public_key_bytes()
+    except H1Error:
+        return False
+    return h1crypto.verify(signature, _LICENSE_DOMAIN + payload, pub)
 
 
-def make_license_key(serial: str | None = None) -> str:
-    """Mint a valid license key. With no serial, a random one is generated.
+def license_subject(key: str) -> str | None:
+    """The subject embedded in a *valid* key (e.g. licensee), else None."""
+    if not license_key_valid(key):
+        return None
+    payload, _ = _split_key(key)  # type: ignore[misc]
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
-    Used by the ``h1license`` helper; kept here so key format lives in one place.
+
+def sign_license(subject: str | None, private_key_hex: str) -> str:
+    """Issue a signed license token for ``subject`` using a private signing key.
+
+    Used by the ``h1license`` helper. Needs the private key, which only the
+    operator holds — this is never called from the gated recon helpers.
     """
-    if serial is None:
-        serial = "".join(secrets.choice(_KEY_ALPHABET) for _ in range(15))
-    else:
-        serial = re.sub(r"[\s-]+", "", serial).upper()
-        if len(serial) != 15 or any(c not in _KEY_ALPHABET for c in serial):
-            raise H1Error(
-                "serial must be 15 characters from the key alphabet "
-                f"({_KEY_ALPHABET})"
-            )
-    groups = [serial[i:i + 5] for i in range(0, 15, 5)]
-    return "H1-" + "-".join(groups) + "-" + _key_checksum(serial)
+    try:
+        priv = bytes.fromhex(private_key_hex.strip())
+    except ValueError as e:
+        raise H1Error(f"malformed private key: {e}") from e
+    if len(priv) != 32:
+        raise H1Error("private key must be 32 bytes (64 hex chars)")
+    payload = (subject or os.urandom(8).hex()).encode("utf-8")
+    pub = h1crypto.public_from_private(priv)
+    signature = h1crypto.sign(_LICENSE_DOMAIN + payload, priv, pub)
+    return ".".join(
+        (LICENSE_PREFIX, _b64url_encode(payload), _b64url_encode(signature))
+    )
 
 
 def load_license_key() -> str | None:
@@ -162,8 +198,8 @@ def verify_license() -> None:
         )
     if not license_key_valid(key):
         raise H1Error(
-            "invalid license key. Expected the format "
-            "H1-XXXXX-XXXXX-XXXXX-XXXXX. Check the value in "
+            "invalid license key: it is malformed or not signed by the "
+            "expected key. Check the value in "
             f"{LICENSE_ENV} or your license file."
         )
 
