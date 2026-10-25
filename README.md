@@ -50,12 +50,14 @@ git clone https://github.com/SystemError5251/HackerOneTool.git
 cd HackerOneTool
 chmod +x *.py *.sh
 npm i -g opencode-ai        # optional: only for analyze.sh / slash commands
-opencode auth login         # optional: pick a model provider
 ```
 
 The recon helpers need only Python 3 (`pkg install python` on Termux) and no
-packages. OpenCode is optional; on **Termux/Android** it has no official build —
-see [Termux / Android](#termux--android-no-official-build) for the working paths.
+packages. OpenCode is optional and runs **fully offline** here — no
+`opencode auth login`, no cloud provider; it talks only to a local model server
+(see [OpenCode integration](#opencode-integration)). On **Termux/Android** it
+has no official build — see
+[Termux / Android](#termux--android-no-official-build) for the working paths.
 
 One-liner (clone + setup):
 
@@ -297,47 +299,76 @@ cleanly with no broken-pipe traceback, and `Ctrl-C` exits with code `130`.
 
 ## OpenCode integration
 
-The repo is set up for the [OpenCode](https://opencode.ai) CLI agent:
+The repo is set up for the [OpenCode](https://opencode.ai) CLI agent, wired to
+run **fully offline** so the AI-analysis layer never leaves the authorized
+scope — no cloud provider, no API key, no telemetry, no phone-home:
 
 - `AGENTS.md` — project context and the authorized-testing guardrails OpenCode
   should respect here.
-- `opencode.json` — loads those instructions and keeps edits/pushes behind a
-  confirmation prompt.
-- `analyze.sh` — pipes a helper's output into `opencode run` for analysis.
+- `opencode.json` — loads those instructions, restricts OpenCode to **loopback**
+  model providers only (`llamacpp/local` on `127.0.0.1:8080`, or the bundled
+  `mock` on `127.0.0.1:8787`), turns off autoupdate / telemetry / sharing, and
+  denies `webfetch`, `websearch` and network shell commands to the agent.
+- `opencode-env.sh` — the offline lock, sourced by `analyze.sh` before OpenCode
+  starts: disables update checks, the models.dev catalogue download, LSP
+  downloads and cloud auth plugins, and keeps `127.0.0.1`/`localhost` off any
+  configured proxy (so Burp & co. don't swallow the local model call).
+- `analyze.sh` — pipes a helper's output into `opencode run` for analysis,
+  auto-selecting the local llama-server when it's up and the mock otherwise.
 
-### Terminal integration & installation
+> The offline setup is extracted from the companion project
+> [**OPENCODE-LOCAL**](https://github.com/SystemError5251/OPENCODE-LOCAL),
+> which packages OpenCode + a local `llama.cpp` model server. Use it to run the
+> `llamacpp/local` model server referenced here; any OpenAI-compatible server
+> on `127.0.0.1:8080` works too.
+
+### Install OpenCode
 
 Install the [OpenCode](https://opencode.ai) CLI (pick one):
 
 ```bash
-npm i -g opencode-ai                      # npm / Node.js
-# or
 curl -fsSL https://opencode.ai/install | bash   # standalone installer
+# or
+npm i -g opencode-ai                             # npm / Node.js
 # or:  brew install sst/tap/opencode  ·  paru -S opencode-bin
 ```
 
-Then authenticate once and launch it **from the repo root** so it picks up this
-project's `AGENTS.md`, `opencode.json`, and `.opencode/command/` automatically:
+This is **sst/opencode** (the `opencode` command). It is *not* the Debian
+package `pencode` (`golang-github-ffuf-pencode-dev`) that `apt` may suggest —
+that is an unrelated tool. Upgrade any time with `opencode upgrade`. The methods
+above work on ordinary glibc Linux (x86_64 / arm64) and macOS.
+
+### Run a local model server
+
+Point a local, OpenAI-compatible model server at `127.0.0.1:8080`. The simplest
+path is the companion project:
+
+```bash
+git clone https://github.com/SystemError5251/OPENCODE-LOCAL.git ~/opencode-local
+cd ~/opencode-local && ./quickstart.sh        # builds llama.cpp, fetches a model
+scripts/start-llama.sh                        # serve a GGUF model on :8080
+```
+
+No model yet? You can still exercise the whole pipeline with the offline **mock**
+model (see "Offline test model" below) — `analyze.sh` falls back to it
+automatically when nothing answers on `:8080`.
+
+### Launch the TUI
+
+Launch OpenCode **from the repo root** so it picks up this project's
+`AGENTS.md`, `opencode.json`, and `.opencode/command/` automatically. Load the
+offline lock first so the TUI stays offline too:
 
 ```bash
 cd HackerOneTool
-opencode auth login        # one-time: choose a model provider
+source ./opencode-env.sh   # offline lock (analyze.sh does this for you)
 opencode                   # start the interactive TUI in this repo
 ```
 
 Inside the TUI you can chat, or run the project slash commands directly
 (`/analyze-program`, `/analyze-report`, `/scope` — see below). For
-non-interactive / scripted use, drive it from the terminal with `opencode run`:
-
-```bash
-opencode run "list the in-scope assets for mercadolibre"   # one-shot prompt
-opencode run --model mock/mock-1 "hello"                   # offline, see below
-```
-
-No provider yet? Use the offline mock model (next section) to exercise the whole
-terminal flow with no API key. Upgrade the CLI any time with `opencode upgrade`.
-
-The methods above work on ordinary glibc Linux (x86_64 / arm64) and macOS.
+non-interactive / scripted use, prefer `analyze.sh` (next section), which loads
+the offline lock and selects a loopback model for you.
 
 #### Termux / Android (no official build)
 
@@ -373,32 +404,39 @@ and the slash commands — the AI-analysis layer on top.
 
 ### Analyze from the terminal
 
-`analyze.sh` wraps `opencode run`, feeding a helper's output straight into a prompt:
+`analyze.sh` wraps `opencode run`, loading the offline lock and feeding a
+helper's output straight into a prompt. It picks the model for you: the local
+llama-server on `127.0.0.1:8080` when it's up, otherwise the offline mock.
 
 ```bash
-opencode auth login                        # one-time: pick a provider
 ./analyze.sh reports mercadolibre          # summarize disclosed findings
 ./analyze.sh report 2289836                # summarize one report
-MODEL=anthropic/claude-sonnet-4-5 ./analyze.sh scope mercadolibre
+./analyze.sh scope mercadolibre            # summarize a program's scope
+MODEL=mock/mock-1 ./analyze.sh scope mercadolibre   # force a specific model
 ```
 
-### Offline test model (no provider needed)
+Both models are loopback-only, so analysis never leaves the host. (The recon
+helpers themselves still query HackerOne's own public API — that is their job
+and not a program's target asset.)
+
+### Offline test model (no model needed)
 
 `mock_model_server.py` is a fake OpenAI-compatible model so you can exercise
 the whole OpenCode pipeline — `analyze.sh`, the slash commands — with no real
-provider, API key, or network. It returns a deterministic reply that echoes
-what it received, proving the plumbing works. The `mock` provider in
-`opencode.json` points OpenCode at it.
+model, GPU, or network. It returns a deterministic reply that echoes what it
+received, proving the plumbing works. The `mock` provider in `opencode.json`
+points OpenCode at it, and `analyze.sh` falls back to it when no llama-server
+is running.
 
 ```bash
 python3 mock_model_server.py &                 # listen on 127.0.0.1:8787
-opencode run --model mock/mock-1 "hello"       # talks to the mock
 MODEL=mock/mock-1 ./analyze.sh report 2289836  # full pipeline, offline
 kill %1                                         # stop the server
 ```
 
-Swap `mock/mock-1` for a real `provider/model` (after `opencode auth login`)
-for actual analysis.
+For real analysis, start a local llama-server on `127.0.0.1:8080` (see "Run a
+local model server" above) and drop the `MODEL=` override — `analyze.sh` then
+uses `llamacpp/local` automatically.
 
 `test-pipeline.sh` is a one-shot smoke test (for CI): it boots the mock, runs
 `analyze.sh` against it through OpenCode, asserts the mock replied, and tears
