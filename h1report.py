@@ -20,10 +20,8 @@ import argparse
 import json
 import re
 import sys
-import urllib.error
-import urllib.request
 
-GRAPHQL_URL = "https://hackerone.com/graphql"
+from h1common import DEFAULT_TIMEOUT, graphql, run_cli
 
 REPORT_QUERY = """
 query Report($id: Int!) {
@@ -70,23 +68,8 @@ def parse_id(raw: str) -> int:
     return int(m.group(1))
 
 
-def graphql(query: str, variables: dict) -> dict:
-    payload = json.dumps({"query": query, "variables": variables}).encode()
-    req = urllib.request.Request(
-        GRAPHQL_URL,
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = json.load(resp)
-    if body.get("errors"):
-        msgs = "; ".join(e.get("message", "?") for e in body["errors"])
-        raise RuntimeError(f"GraphQL error: {msgs}")
-    return body["data"]
-
-
-def fetch_report(report_id: int) -> dict:
-    report = graphql(REPORT_QUERY, {"id": report_id})["report"]
+def fetch_report(report_id: int, timeout: float = DEFAULT_TIMEOUT) -> dict:
+    report = graphql(REPORT_QUERY, {"id": report_id}, timeout=timeout)["report"]
     if report is None:
         raise RuntimeError(f"report {report_id} not found or not public")
     return report
@@ -165,19 +148,19 @@ def main(argv: list[str]) -> int:
     ap.add_argument("report", help="report id or URL, e.g. 2289836")
     ap.add_argument("--comments", action="store_true", help="include comment events in the timeline")
     ap.add_argument("--json", action="store_true", help="emit raw JSON instead of a summary")
+    ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
+                    help=f"request timeout in seconds (default {DEFAULT_TIMEOUT:g})")
     args = ap.parse_args(argv)
 
-    try:
+    def run() -> None:
         report_id = parse_id(args.report)
-        report = fetch_report(report_id)
+        report = fetch_report(report_id, args.timeout)
         if args.json:
             print(json.dumps(report, indent=2))
         else:
             print_report(report, report_id, show_comments=args.comments)
-    except (ValueError, RuntimeError, urllib.error.URLError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    return 0
+
+    return run_cli(run)
 
 
 if __name__ == "__main__":

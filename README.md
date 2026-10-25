@@ -59,7 +59,11 @@ python3 h1scope.py mercadolibre --policy   # also dump the policy text
 python3 h1scope.py mercadolibre --json     # raw JSON for scripting
 ```
 
-No dependencies beyond the Python 3 standard library.
+No dependencies beyond the Python 3 standard library. All three share
+`h1common.py` for transport: a User-Agent, bounded retries with backoff on
+rate-limits and transient errors, clean one-line error messages, and
+program-handle validation. Every tool also takes `--timeout <seconds>`, and the
+endpoint can be overridden with the `HACKERONE_GRAPHQL` environment variable.
 
 ## `h1reports.py`
 
