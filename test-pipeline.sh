@@ -19,6 +19,11 @@ port="8787"
 model="mock/mock-1"
 server_pid=""
 
+# The recon helpers require a valid license key (see README "License key").
+# Mint a throwaway one for this offline smoke run so analyze.sh can call them.
+# Fully local — h1license.py generates and validates keys without any network.
+export HACKERONETOOL_LICENSE="${HACKERONETOOL_LICENSE:-$(python3 "$here/h1license.py" new)}"
+
 cleanup() {
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" 2>/dev/null || true
